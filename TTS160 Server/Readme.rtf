@@ -1,0 +1,56 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1033{\fonttbl{\f0\fnil\fcharset0 Calibri;}}
+{\colortbl ;\red0\green0\blue255;}
+{\*\generator Riched20 10.0.22621}\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\qc\b\f0\fs22\lang9 ASCOM Telescope Driver for TTS-160 V. 354.1.2\b0\par
+
+\pard\sa200\sl276\slmult1 ASCOM Driver created specifically for the TTS-160 mount\par
+This driver is written for the TTS-160 Panther telescope.  In part, it uses code adapted from the Meade LX200 Classic Driver ({{\field{\*\fldinst{HYPERLINK https://github.com/kickitharder/Meade-LX200-Classic--ASCOM-Driver }}{\fldrslt{https://github.com/kickitharder/Meade-LX200-Classic--ASCOM-Driver\ul0\cf0}}}}\f0\fs22 ) as noted in inline comments within the code.  The implementation includes some simulations and estimations required due to the limited implementation of the LX200 protocol by the mount in an attempt to maximize the methods available to programs while maintaining as close as possible to the ASCOM philosophy of reporting actual truth of hardware state.\par
+The driving force behind this driver was due to the issues surrounding the other available drivers in use which were general LX200 implementations, particularly felt when ASCOM 6.6 was released near the end of 2022.  This driver is intended to be able to be maintained by the Panther community to prevent those issues from occurring in the future (or at least corrected more quickly!).\par
+NOTE: The ASCOM device chooser name will not be updated when new versions are installed.  Because of this, a standard name of 'Track The Stars TTS-160' will be used beginning in 354.1.2.  As long as the installer was used to install the latest driver, everything will work fine regardless of what the chooser shows.  If you want to do a clean install of the driver or just want to fix the chooser name, the procedure below will walk you through this.\par
+
+\pard\sl240\slmult1\b THE FOLLOWING PROCEDURE IS OPTIONAL.  YOU WILL LOSE YOUR CURRENT DRIVER SETTINGS!\par
+\par
+\b0\i Note 1: The use of ASCOM Device Hub is merely a convenience to get to the ASCOM Chooser dialog box.  If you are more comfortable getting to that dialog box from within another program (NINA, SharpCap, etc...), use that method instead\b\i0\par
+\b0\par
+\i Note 2: Profile Explorer looks very similar to RegEdit as ASCOM saves the driver information in the registry.  Profile Explorer uses internal ASCOM functions to ensure all necessary changes are made to the registry so I highly recommend using this approach as opposed to editing your registry directly\i0\par
+\par
+1. If present, uninstall the TTS160 driver using Windows' Add or Remove programs ('ASCOM TTS160 Telescope Driver xxx.x.x' or similar).\par
+2. Open ASCOM 'Profile Explorer'.\par
+3. Expand Telescope Drivers.\par
+4. Select 'ASCOM.TTS160.Telescope', right click, select delete and choose 'OK'.  Close out of the window.\par
+5. Open 'ASCOM Device Hub'.\par
+6.  Select Tools->Setup Go to the 'Telescope Setup' tab and click 'Choose'.  Verify the TTS160 driver is not in the list, choose 'Cancel' and close out of Device Hub.\par
+7. Install the most recent version of the TTS160 ASCOM driver.\par
+8. Repeat step 6, this time verifying that you see 'Track The Stars TTS-160'.  Feel free at this time to select 'Properties' and re-enter your driver settings.\par
+\par
+
+\pard\sa200\sl240\slmult1\b THE ABOVE PROCEDURE WAS OPTIONAL AND RESET YOUR DRIVER SETTINGS!\b0\par
+
+\pard\sa200\sl276\slmult1\strike Please note that the current implementation of the driver will only support one program to use it at a time (only NINA, not NINA and PHD2, for example).  In order to allow multiple programs to interface with the mount, use the ASCOM Device Hub driver within those programs, and configure Device Hub to use this driver.  There is a notional plan to recreate the driver as a local server, which would correct the allow for that multiple access capability at some point in the future, but for now I have taken steps to ensure that this driver plays well with Device Hub.  Short answer for why I chose this path is that the local server is a more difficult implementation and at the start of the project I had no experience in .NET development, COM development, ASCOM development, use of Visual Studio, or the C# language, barring the sorta/kinda similarity it has to C/Python/MATLAB.  So definitely a case where perfection would have very much gotten in the way of good enough.\par
+\strike0 As of v. 354.1.0, the driver is now a local server, no need to go through ASCOM Device Hub or ASCOM Remote.  This driver may be selected directly and connected in multiple applications.\strike\par
+\strike0 The manual slew rate has 3 speed options (1.4, 2.2, 3 deg/sec) as well as a much slower speed, the actual value of which is dependent on the guide rate setting of the hand pad.  For that case, the displayed rate may not be reflective of the actual manual slew rate.\par
+Also note that the mount returns site location only to the nearest minute.  So if your astronomy program is reporting a different site location than you have entered (and verified) in your handpad, that precision limitation is likely the culprit.  As of v. 354.0.0, the setup contains an additional option to save the mount location on the computer to a higher precision.  You must take care to ensure that the handpad mount location matches the driver mount location!  The driver is not able to send updated location information to the mount.\par
+To foot stomp the point: this driver will NOT change the mount's location as set in the handpad, regardless of what you see in any logs or display!\par
+Another source of potentially strange behavior is if you go off of the operations screen in the handpad while the mount is doing stuff.  Currently, remote communications from the handpad only happen in the operations screen.  If something is not working right, first step should be to completely disconnect (from all programs, even going so far as to using task manager to verify the ASCOM TTS160 process is killed).\par
+Lastly, be aware that the mount will not resume tracking if a slew is canceled (it will resume tracking when a slew is completed).\par
+The source code for the driver can be found at: {{\field{\*\fldinst{HYPERLINK https://github.com/rwsmythe/TTS-160-ASCOM-Driver }}{\fldrslt{https://github.com/rwsmythe/TTS-160-ASCOM-Driver\ul0\cf0}}}}\f0\fs22\par
+\par
+Enjoy, and let me know if you have any issues.\par
+--Reid\par
+\par
+\par
+----------------------------------------\par
+\par
+Setup Window Clarifications:\par
+\b Site altitude \b0 is used to report site altitude as needed.  If you change site location in the mount, you may also want to change the site altitude in the driver.  Please not that programs can NOT update the site location (lat long) stored in the handpad, however adjustments to altitude CAN be stored.  This is program dependent and may result in somewhat erratic behavior if you try to update the mount location from a program.\par
+\b Slew settling time \b0 is essentially a wait period before the mount reports that a slew is complete (generally determined by the mount returning to a tracking state).  There is typically a short settling time after the mount starts tracking before it has settled.  This may be useful to set to a larger value to account for rOTAtor motion if you don't want a slew to be considered complete until after the rOTAtor is finished moving.  Limited to integer seconds based on ASCOM compliance.\par
+\b Recorded site lat/long \b0 are read-only fields that show what the handpad location was set to the last time the driver read the site location.  If it has changed between readings then you will see the old location until you have connected the mount and that location is refreshed.\par
+\b Driver Site Enable\b0  allows you to enter more precise coordinates to be retained by the driver.  This does not impact the mount hardware but improves the accuracy of some calculations within the driver.  Any changes you make on the handpad will not be seen be reflected in these fields.  If you see erratic behavior and have this box checked, verify that the Driver lat and long are correct or uncheck the box to use the less precise internal mount location.\par
+\b App Compatibility Mode\b0  strategically "breaks" ASCOM compliance in benign ways to support specific programs (in this case, Moon Panorama Maker being the only one coded for, so far).  Selecting 'none' will restore ASCOM compliance.  This may result in occasional strange behavior in other programs if they try to execute specific functions.  If you see that happen and this option is set to MPM, just set it to NONE and reconnect the mount.\par
+\b Sync Mount Time to Computer on Connect \b0 is self explanatory.  There may be situations where you do not wish for this to occur.  If that is the case, simply uncheck the box.  Note that this syncs both time and date and is based off of the time zone correction on the handpad being correct.  This should prevent, for example, NINA warnings about time mismatch and it should improve goto and tracking in general, assuming your computer has accurate time.\par
+\b Guiding Compensation \b0 allows for E/W pulse guides to compensate for altitude which should result in better guiding.  Note that PHD2 by default has a pulse-time + 1 sec limit.  Compensated pulses greater than that limit may cause PHD2 to fail guiding.  The buffer option is used to calculate a maximum corrected pulse duration to prevent exceeding the 1 second limit due to the command rate of PHD2 when querying pulse command status.\par
+\b Pulse Guide in Equatorial Frame\b0  causes the driver to convert received pulses from the hardware frame into the Equatorial Topocentric frame.  This means that guide pulses will drive the mount along the Dec or RA axis, which is the correct implementation from an ASCOM-compliance point of view.  If it looks like Dec sees more motion than RA, just recall that RA is given in sidereal hours and Dec is given in degrees, so you will see a ~15x greater change in numbers in Dec than RA.  Leveling the mount may help to minimize errors.\par
+\b Default Tracking Rate\b0  allows the driver to know which tracking rate is being used.  Changing this setting does not change anything on the mount, nor will changing the setting on the mount automatically update the driver.  There will likely be very little, if any, performance impact if this setting is mismatched to the mount.\par
+\b Hand Controller (HC) Guide Rate\b0  is also another informational-only setting that allows the driver to report the correct guide rate.  As above, the will be little, if any, impact if this value is mismatched to the mount.\par
+}
+ 
