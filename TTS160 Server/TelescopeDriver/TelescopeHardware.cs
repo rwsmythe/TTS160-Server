@@ -22,7 +22,7 @@
 //
 // Date			Who	Vers	Description
 // -----------	---	-----	-------------------------------------------------------
-// 21JUN2024    RWS 354.1.2 Corrected issue where ASCOM chooser name was not updating.
+// 21JUN2024    RWS 354.1.2 Removed version from driver name in chooser.  Added slew result checking to indicate possible slew error if mount stops early.
 // 20JUN2024    RWS 354.1.1 Corrected profile bug.  Refined Eq.Topo pulse guide.  Note that Conform will toss accuracy issues due to the mount reporting position only to the nearest second.
 // 18JUN2024    RWS 354.1.0 Local server version released.
 // 15JUN2024    RWS 354.0.0 Confirmed operation with 354 firmware.  Added Eq.Topo. Pulse Guide option.  Removed SlewToAltAz functionality.  Added ability for driver to remember site location
@@ -56,8 +56,6 @@ using System;
 using System.Collections;
 using System.Diagnostics.Eventing.Reader;
 using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -154,15 +152,8 @@ namespace ASCOM.TTS160.Telescope
             tl = new TraceLogger("", "TTS160.Hardware v. " + driverVersion);
             profileProperties = ReadProfile();
             tl.Enabled = profileProperties.TraceLogger;
-            //LogMessage("Telescope", "Starting initialization");
 
-            //connectedState = false; // Initialise connected to false
-            //utilities = new Util(); //Initialise util object
-            //astroUtilities = new AstroUtils(); // Initialise astro-utilities object
             T = new Transform();
-            //Slewing = false;
-
-            //TODO: Implement your additional construction here
 
             LogMessage("Telescope", "Completed start-up");
         }
@@ -191,6 +182,15 @@ namespace ASCOM.TTS160.Telescope
                 // Add your own "one off" device initialisation here e.g. validating existence of hardware and setting up communications
 
                 Slewing = false;
+                MiscResources.IsSlewing = false;
+                MiscResources.IsSlewingToTarget = false;
+                MiscResources.IsSlewingAsync = false;
+                MiscResources.SlewSettleStart = DateTime.MinValue;
+                MiscResources.IsPulseGuiding = false;
+                MiscResources.MovingPrimary = false;
+                MiscResources.MovingSecondary = false;
+                MiscResources.EWPulseGuideFlag = false;
+                MiscResources.NSPulseGuideFlag = false;
 
                 LogMessage("InitializeHardware", $"One-off initialization complete.");
                 runOnce = true; // Set the flag to ensure that this code is not run again
@@ -276,8 +276,6 @@ namespace ASCOM.TTS160.Telescope
 
                     default:
                         throw new ASCOM.ActionNotImplementedException("Action " + actionName + " is not implemented by this driver");
-
-
                 }
 
             }
@@ -304,73 +302,52 @@ namespace ASCOM.TTS160.Telescope
                         case 0:
                             try
                             {
-
                                 LogMessage("Commander", $"Blind - raw: {raw} command {command}");
                                 SharedResources.SendMessage(command, commandtype);
                                 LogMessage("Commander", $"Blind - {command} Completed");
                                 return "";
-
                             }
                             catch (Exception ex)
                             {
-
                                 LogMessage("Commander", $"Blind - Error: {ex.Message}; Command: {command}");
                                 throw;
-
                             }
                         case 1:
                             try
                             {
-
                                 LogMessage("Commander", $"Bool - raw: {raw} command {command}");
                                 string retbool = SharedResources.SendMessage(command, commandtype);
                                 return retbool;
-
                             }
                             catch (Exception ex)
                             {
-
                                 LogMessage("Commander", $"Bool - Error: {ex.Message}; Command: {command}");
                                 throw;
-
                             }
-
                         case 2:
-
                             try
                             {
-
                                 LogMessage("Commander", $"String - raw: {raw} command {command}");
-
-                                //serialPort.ClearBuffers();
-                                //serialPort.Transmit(command);
                                 var result = SharedResources.SendMessage(command, commandtype);  //assumes that all return strings are # terminated...is this true?
                                                                                                         //tl.LogMessage("CommandString", "utilities.WaitForMilliseconds(TRANSMIT_WAIT_TIME);");
                                                                                                         //utilities.WaitForMilliseconds(TRANSMIT_WAIT_TIME); //limit transmit rate
                                                                                                         //tl.LogMessage("CommandString", "completed serial port receive...");
                                 LogMessage("Commander", $"String - {command} Completed: {result}");
                                 return result;
-
                             }
                             catch (Exception ex)
                             {
-
                                 LogMessage("Commander", $"String - Error: {ex.Message}; Command: {command}");
                                 throw;
-
                             }
-
                         default:
                             throw new ASCOM.DriverException("Invalid Command Type: " + commandtype.ToString());
-
                     }
                 }
                 catch (Exception ex)
                 {
-
                     LogMessage("Commander", $"Error: {ex.Message}");
                     throw;
-
                 }
             }
         }
@@ -500,8 +477,8 @@ namespace ASCOM.TTS160.Telescope
                             LogMessage("Connected set", "Success");
                             LogMessage("Connected set", "Connected with " + driverDescription);
                             LogMessage("Connected set", "Updating Site Lat and Long");
-                            profileProperties.SiteLatitude = SiteLatitude;
-                            profileProperties.SiteLongitude = SiteLongitude;
+                            profileProperties.SiteLatitude = SiteLatitudeInit;
+                            profileProperties.SiteLongitude = SiteLongitudeInit;
                             LogMessage("Connected set", $"Mount Lat: {profileProperties.SiteLatitude}");
                             LogMessage("Connected set", $"Mount Long: {profileProperties.SiteLongitude}");
                             LogMessage("Connected set", $"Driver Site Location Override: {profileProperties.DriverSiteOverride}");
@@ -516,10 +493,8 @@ namespace ASCOM.TTS160.Telescope
                                 LogMessage("Connected set", "Pre Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
                                 LogMessage("Connected set", "Pre Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));                              
                                 UTCDate = DateTime.UtcNow;
-                                Thread.Sleep(500); //Give the mount time to respond to resetting the time...
                                 LogMessage("Connected set", "Post Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
                                 LogMessage("Connected set", "Post Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
-
                             }
 
                             LogMessage("Connected", "Establishing Tracking Rate - " + profileProperties.TrackingRateOnConnect.ToString());
@@ -546,8 +521,7 @@ namespace ASCOM.TTS160.Telescope
                         }
                         catch (Exception ex)
                         {
-                            LogMessage("Connected set", $"Error during initial configuration: {ex.Message}");
-                            
+                            LogMessage("Connected set", $"Error during initial configuration: {ex.Message}");                           
                         }                    
                     }
                     else
@@ -562,8 +536,8 @@ namespace ASCOM.TTS160.Telescope
 
                     try
                     {
-                        profileProperties.SiteLatitude = SiteLatitude;
-                        profileProperties.SiteLongitude = SiteLongitude;
+                        profileProperties.SiteLatitude = SiteLatitudeInit;
+                        profileProperties.SiteLongitude = SiteLongitudeInit;
                         WriteProfile(profileProperties);
 
                         SharedResources.Connected = false;
@@ -594,7 +568,7 @@ namespace ASCOM.TTS160.Telescope
             // TODO customise this device description
             get
             {
-                tl.LogMessage("Description Get", driverDescription);
+                LogMessage("Description get", driverDescription);
                 return driverDescription;
             }
         }
@@ -609,7 +583,7 @@ namespace ASCOM.TTS160.Telescope
                 Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
                 // TODO customise this driver description
                 string driverInfo = "Driver for TTS-160. Version: " + String.Format(CultureInfo.InvariantCulture, "{0}.{1}", version.Major, version.Minor);
-                tl.LogMessage("DriverInfo Get", driverInfo);
+                tl.LogMessage("DriverInfo get", driverInfo);
                 return driverInfo;
             }
         }
@@ -623,7 +597,7 @@ namespace ASCOM.TTS160.Telescope
             {
                 Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
                 string driverVersion = String.Format(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}");
-                tl.LogMessage("DriverVersion Get", driverVersion);
+                LogMessage("DriverVersion get", driverVersion);
                 return driverVersion;
             }
         }
@@ -649,7 +623,7 @@ namespace ASCOM.TTS160.Telescope
             get
             {
                 string name = "TTS-160";
-                tl.LogMessage("Name Get", name);
+                LogMessage("Name Get", name);
                 return name;
             }
         }
@@ -683,11 +657,11 @@ namespace ASCOM.TTS160.Telescope
                 MiscResources.MovingSecondary = false;
                 Tracking = MiscResources.TrackSetFollower;
 
-                tl.LogMessage("AbortSlew", "Completed");
+                LogMessage("AbortSlew", "Completed");
             }
             catch (Exception ex)
             {
-                tl.LogMessage("AbortSlew", $"Error: {ex.Message}");
+                LogMessage("AbortSlew", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -702,8 +676,6 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
                     CheckConnected("AlignmentMode");
-
-                    //String ret = CommandString(":GW#", true);
                     String ret = Commander(":GW#", true, 2);
                     switch (ret[0])
                     {
@@ -716,7 +688,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("AlignmentMode Get", $"Error: {ex.Message}");
+                    LogMessage("AlignmentMode Get", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -731,20 +703,16 @@ namespace ASCOM.TTS160.Telescope
             {
                 try
                 {
-
-                    LogMessage("Altitude Get", "Getting Altitude");
                     CheckConnected("Altitude Get");
-
+                    LogMessage("Altitude get", "Getting Altitude");
                     var result = Commander(":GA#", true, 2);
                     //:GA# Get telescope altitude
                     //Returns: DDD*MM# or DDD*MM'SS#
                     //The current telescope Altitude depending on the selected precision.
 
                     double alt = utilities.DMSToDegrees(result);
-
                     LogMessage("Altitude Get", $"{alt}");
                     return alt;
-
                 }
                 catch (Exception ex)
                 {
@@ -827,7 +795,7 @@ namespace ASCOM.TTS160.Telescope
             }
             catch (Exception ex)
             {
-                LogMessage("AxisRates", $"Error: {ex.Message}");
+                LogMessage("AxisRates get", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -842,8 +810,8 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
 
-                    tl.LogMessage("Azimuth Get", "Getting Azimuth");
-                    CheckConnected("Azimuth Get");
+                    LogMessage("Azimuth get", "Getting Azimuth");
+                    CheckConnected("Azimuth get");
 
                     var result = Commander(":GZ#", true, 2);
                     //:GZ# Get telescope azimuth
@@ -851,14 +819,13 @@ namespace ASCOM.TTS160.Telescope
                     //The current telescope Azimuth depending on the selected precision.
 
                     double az = utilities.DMSToDegrees(result);
-
-                    LogMessage("Azimuth Get", $"{az}");
+                    LogMessage("Azimuth get", $"{az}");
                     return az;
 
                 }
                 catch (Exception ex)
                 {
-                    LogMessage("Azimuth Get", $"Error: {ex.Message}");
+                    LogMessage("Azimuth get", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -876,7 +843,7 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanFindHome");
 
                     //TTS-160 does not have 'Home' functionality implemented at this time, return false
-                    LogMessage("CanFindHome", "Get - " + false.ToString());
+                    LogMessage("CanFindHome get", $"{false}");
                     return false;
                 }
                 catch (Exception ex)
@@ -923,12 +890,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanPark");
 
-                    tl.LogMessage("CanPark get", $"{true}");
+                    LogMessage("CanPark get", $"{true}");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanPark", $"Error: {ex.Message}");
+                    LogMessage("CanPark", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -1011,7 +978,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSetGuideRates", $"Error: {ex.Message}");
+                    LogMessage("CanSetGuideRates", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1029,12 +996,12 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetPark");
 
                     //Set Park is not implemented by TTS-160, return false
-                    tl.LogMessage("CanSetPark", "Get - " + false.ToString());
+                    LogMessage("CanSetPark", "Get - " + false.ToString());
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSetPark", $"Error: {ex.Message}");
+                    LogMessage("CanSetPark", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -1053,12 +1020,12 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetPierSide");
 
                     //TTS-160 does not have Set PierSide implemented, return false
-                    tl.LogMessage("CanSetPierSide", "Get - " + false.ToString());
+                    LogMessage("CanSetPierSide get", $"{false}");
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSetPierSide", $"Error: {ex.Message}");
+                    LogMessage("CanSetPierSide", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1076,12 +1043,12 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetRightAscensionRate");
 
                     //TTS-160 has not implemented SetRightAscensionRate, return false
-                    tl.LogMessage("CanSetRightAscensionRate", "Get - " + false.ToString());
+                    LogMessage("CanSetRightAscensionRate get", $"{false}");
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSetRightAscensionRate", $"Error: {ex.Message}");
+                    LogMessage("CanSetRightAscensionRate", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1099,13 +1066,13 @@ namespace ASCOM.TTS160.Telescope
 
                     CheckConnected("CanSetTracking");
 
-                    tl.LogMessage("CanSetTracking", "Get - " + true.ToString());
+                    LogMessage("CanSetTracking", "Get - " + true.ToString());
                     return true;
 
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSetTracking", $"Error: {ex.Message}");
+                    LogMessage("CanSetTracking", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1122,12 +1089,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSlew");
 
-                    tl.LogMessage("CanSlew", "Get - " + true.ToString());
+                    LogMessage("CanSlew", "Get - " + true.ToString());
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSlew", $"Error: {ex.Message}");
+                    LogMessage("CanSlew", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1145,12 +1112,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSlewAltAz");
 
-                    tl.LogMessage("CanSlewAltAz", "Get - " + false.ToString());
+                    LogMessage("CanSlewAltAz", "Get - " + false.ToString());
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSlewAltAz", $"Error: {ex.Message}");
+                    LogMessage("CanSlewAltAz", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1168,12 +1135,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSlewAltAzAsync");
 
-                    tl.LogMessage("CanSlewAltAzAsync", "Get - " + false.ToString());
+                    LogMessage("CanSlewAltAzAsync", $"{false}");
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSlewAltAzAsync", $"Error: {ex.Message}");
+                    LogMessage("CanSlewAltAzAsync", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1190,12 +1157,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSlewAsync");
 
-                    tl.LogMessage("CanSlewAsync", "Get - " + true.ToString());
+                    LogMessage("CanSlewAsync get", $"{true}");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSlewAsync", $"Error: {ex.Message}");
+                    LogMessage("CanSlewAsync", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1212,12 +1179,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSync");
 
-                    tl.LogMessage("CanSync", "Get - " + true.ToString());
+                    LogMessage("CanSync get", $"{true}");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSync", $"Error: {ex.Message}");
+                    LogMessage("CanSync", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1234,12 +1201,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSyncAltAz");
 
-                    tl.LogMessage("CanSyncAltAz", "Get - " + true.ToString());
+                    LogMessage("CanSyncAltAz get", $"{true}");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanSyncAltAz", $"Error: {ex.Message}");
+                    LogMessage("CanSyncAltAz", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1256,12 +1223,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanUnpark");
 
-                    tl.LogMessage("CanUnpark", "Get - " + false.ToString());
+                    LogMessage("CanUnpark get", $"{false}");
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("CanUnpark", $"Error: {ex.Message}");
+                    LogMessage("CanUnpark", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1289,13 +1256,13 @@ namespace ASCOM.TTS160.Telescope
 
                     double declination = utilities.DMSToDegrees(result);
 
-                    tl.LogMessage("Declination", "Get - " + utilities.DegreesToDMS(declination, ":", ":"));
+                    LogMessage("Declination get", utilities.DegreesToDMS(declination, ":", ":",""));
                     return declination;
 
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Declination Get", $"Error: {ex.Message}");
+                    LogMessage("Declination Get", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -1311,13 +1278,13 @@ namespace ASCOM.TTS160.Telescope
             {
                 //Declination Rate not implemented by TTS-160, return 0.0
                 double declinationRate = 0.0;
-                tl.LogMessage("DeclinationRate", "Get - " + declinationRate.ToString());
+                LogMessage("DeclinationRate get", $"{declinationRate}");
                 return declinationRate;
             }
             set
             {
                 //Declination Rate not implemented by TTS-160
-                tl.LogMessage("DeclinationRate Set", "Not implemented");
+                LogMessage("DeclinationRate Set", "Not implemented");
                 throw new PropertyNotImplementedException("DeclinationRate", true);
             }
         }
@@ -1327,8 +1294,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static PierSide DestinationSideOfPier(double rightAscension, double Declination)
         {
-            //tl.LogMessage("DestinationSideOfPier Get", "Not implemented");
-            //throw new PropertyNotImplementedException("DestinationSideOfPier", false);
+            
             try
             {
                 CheckConnected("DestinationSideOfPier");
@@ -1355,13 +1321,13 @@ namespace ASCOM.TTS160.Telescope
             get
             {
                 //Refraction not implemented by TTS-160
-                tl.LogMessage("DoesRefraction Get", "Not implemented");
+                LogMessage("DoesRefraction get", "Not implemented");
                 throw new PropertyNotImplementedException("DoesRefraction", false);
             }
             set
             {
                 //Refraction not implemented by TTS-160
-                tl.LogMessage("DoesRefraction Set", "Not implemented");
+                LogMessage("DoesRefraction set", "Not implemented");
                 throw new PropertyNotImplementedException("DoesRefraction", true);
             }
         }
@@ -1380,12 +1346,12 @@ namespace ASCOM.TTS160.Telescope
                     //TTS-160 uses accepts Topocentric coordinates
 
                     EquatorialCoordinateType equatorialSystem = EquatorialCoordinateType.equTopocentric;
-                    tl.LogMessage("EquatorialCoordinateType get", $"{equatorialSystem}");
+                    LogMessage("EquatorialCoordinateType get", $"{equatorialSystem}");
                     return equatorialSystem;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("EquatorialCoordinateType", $"Error: {ex.Message}");
+                    LogMessage("EquatorialCoordinateType", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -1452,7 +1418,7 @@ namespace ASCOM.TTS160.Telescope
                 if (profileProperties.CanSetGuideRatesOverride)
                 {
                     LogMessage("CanSetGuideRates Override", "Set GuideRateDeclination " + value.ToString() + " command received");
-                    LogMessage("GuideRateDeclination", "Set - " + value.ToString() + " assigned to nothing...");
+                    LogMessage("GuideRateDeclination set", $"{value} assigned to nothing...");
                 }
                 else
                 {
@@ -1596,7 +1562,7 @@ namespace ASCOM.TTS160.Telescope
                 }
 
                 var absRate = Math.Abs(Rate);
-                tl.LogMessage("MoveAxis", $"Setting rate to {absRate} deg/sec");
+                LogMessage("MoveAxis", $"Setting rate to {absRate} deg/sec");
 
                 switch (absRate)
                 {
@@ -1642,11 +1608,7 @@ namespace ASCOM.TTS160.Telescope
                                 Commander(":Qw#", true, 0);
 
                                 //:Qw# Halt westward Slews
-                                //Returns: Nothing
-
-                                //int LOOP_WAIT_TIME = 100; //ms
-
-                                //tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");                                  
+                                //Returns: Nothing                              
 
                                 //Redo this implementation for async operation.  Add an initial check to verify moving axis state and whether it should be timed out or not
 
@@ -1658,11 +1620,15 @@ namespace ASCOM.TTS160.Telescope
                                     Thread.Sleep(LOOP_WAIT_TIME);
                                     i++;
                                 }
-                                Slewing = false;
+                                
                                 MiscResources.MovingPrimary = false;
-                                //Per ASCOM standard, SHOULD be incorporating SlewSettleTime
-
-                                tl.LogMessage("MoveAxis", "Primary Axis Stop Movement");
+                                //Per ASCOM standard, SHOULD be incorporating SlewSettleTime --> but if mount sets tracking, no need to wait!
+                                if (!MiscResources.MovingSecondary) //If both primary and secondary are now stopped, restore tracking to what it was.
+                                {
+                                    Slewing = false;
+                                    Tracking = MiscResources.TrackSetFollower;
+                                }
+                                LogMessage("MoveAxis", "Primary Axis Stop Movement");
                                 /*if (!MiscResources.MovingSecondary) //Both primary and secondary are now stopped, start slew settle counter
                                 {
                                     //Slewing = false;
@@ -1744,7 +1710,7 @@ namespace ASCOM.TTS160.Telescope
                                     Thread.Sleep(LOOP_WAIT_TIME);
                                     i++;
                                 }
-                                Slewing = false;
+                                Slewing = false;  //Should slewing be made false here, or do we need to wait until both primary and secondary are not moving?
                                 MiscResources.MovingSecondary = false;
 
 
@@ -1757,8 +1723,13 @@ namespace ASCOM.TTS160.Telescope
                                 //Per ASCOM standard, SHOULD be incorporating SlewSettleTime
                                 */
                                 tl.LogMessage("MoveAxis", "Secondary Axis Stop Movement");
+                                if (!MiscResources.MovingPrimary) //If both primary and secondary are now stopped, restore tracking to what it was.
+                                {
+                                    Slewing = false;  //Should slewing be made false here, or do we need to wait until both primary and secondary are not moving?
+                                    Tracking = MiscResources.TrackSetFollower;
+                                   
+                                }
 
-                                //Slewing = false;
                                 break;
                             case ComparisonResult.Greater:
                                 tl.LogMessage("MoveAxis", "Move North");
@@ -2067,7 +2038,7 @@ namespace ASCOM.TTS160.Telescope
             }
             catch (Exception ex)
             {
-                tl.LogMessage("PulseGuideAwesome", $"Error performing awesome pulse guide: {ex.Message}");
+                LogMessage("PulseGuideAwesome", $"Error performing awesome pulse guide: {ex.Message}");
                 throw;
             }
 
@@ -2137,12 +2108,12 @@ namespace ASCOM.TTS160.Telescope
                 }
 
                 IsPulseGuiding = true;
-                tl.LogMessage("PulseGuide", "Guiding with Pulse Guide command");
+                LogMessage("PulseGuide", "Guiding with Pulse Guide command");
                 switch (Direction)
                 {
                     case GuideDirections.guideEast:
                         var guidecmde = ":Mge" + Duration.ToString("D4") + "#";
-                        tl.LogMessage("GuideEast", guidecmde);
+                        LogMessage("GuideEast", guidecmde);
                         //CommandBlind(guidecmde, true);
                         Commander(guidecmde, true, 0);
                         MiscResources.EWPulseGuideFlag = true;
@@ -2151,7 +2122,7 @@ namespace ASCOM.TTS160.Telescope
                         break;
                     case GuideDirections.guideNorth:
                         var guidecmdn = ":Mgs" + Duration.ToString("D4") + "#";  //North and south are reversed...
-                        tl.LogMessage("GuideNorth", guidecmdn);
+                        LogMessage("GuideNorth", guidecmdn);
                         //CommandBlind(guidecmdn, true);
                         Commander(guidecmdn, true, 0);
                         MiscResources.NSPulseGuideFlag = true;
@@ -2160,7 +2131,7 @@ namespace ASCOM.TTS160.Telescope
                         break;
                     case GuideDirections.guideSouth:
                         var guidecmds = ":Mgn" + Duration.ToString("D4") + "#";  //North and south are reversed...
-                        tl.LogMessage("GuideSouth", guidecmds);
+                        LogMessage("GuideSouth", guidecmds);
                         //CommandBlind(guidecmds, true);
                         Commander(guidecmds, true, 0);
                         MiscResources.NSPulseGuideFlag = true;
@@ -2169,7 +2140,7 @@ namespace ASCOM.TTS160.Telescope
                         break;
                     case GuideDirections.guideWest:
                         var guidecmdw = ":Mgw" + Duration.ToString("D4") + "#";
-                        tl.LogMessage("GuideWest", guidecmdw);
+                        LogMessage("GuideWest", guidecmdw);
                         //CommandBlind(guidecmdw, true);
                         Commander(guidecmdw, true, 0);
                         MiscResources.EWPulseGuideFlag = true;
@@ -2486,21 +2457,49 @@ namespace ASCOM.TTS160.Telescope
 
                         double siteLatitude = utilities.DMSToDegrees(result);
 
-                        LogMessage("SiteLatitude get", "Get - " + utilities.DegreesToDMS(siteLatitude, ":", ":"));
+                        LogMessage("SiteLatitude get", utilities.DegreesToDMS(siteLatitude, ":", ":",""));
                         return siteLatitude;
 
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogMessage("siteLatitude Get", $"Error: {ex.Message}");
+                    LogMessage("SiteLatitude get", $"Error: {ex.Message}");
                     throw;
                 }
             }
             set
             {
-                LogMessage("SiteLatitude Set", "Not implemented");
+                LogMessage("SiteLatitude set", "Not implemented");
                 throw new PropertyNotImplementedException("SiteLatitude", true);
+            }
+        }
+
+        internal static double SiteLatitudeInit
+        {
+            get
+            {
+                try
+                {
+
+                    LogMessage("SiteLatitudeInit get", "Getting Site Latitude from the mount");
+                    CheckConnected("SiteLatitudeInit get");
+
+                    var result = Commander(":Gt#", true, 2);
+                    //:Gt# Get Site Latitude
+                    //Returns: sDD*MM#
+
+                    double siteLatitude = utilities.DMSToDegrees(result);
+
+                    LogMessage("SiteLatitudeInit get", utilities.DegreesToDMS(siteLatitude, ":", ":",""));
+                    return siteLatitude;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("SiteLatitudeInit get", $"Error: {ex.Message}");
+                    throw;
+                }
             }
         }
 
@@ -2511,12 +2510,12 @@ namespace ASCOM.TTS160.Telescope
         {
             get
             {
-                LogMessage("SiteLongitude Get", "Getting Site Longitude");
+                LogMessage("SiteLongitude get", "Getting Site Longitude");
                 try
                 {
 
-                    tl.LogMessage("SiteLongitude Get", "Getting Site Longitude");
-                    CheckConnected("SiteLongitude Get");
+                    LogMessage("SiteLongitude get", "Getting Site Longitude");
+                    CheckConnected("SiteLongitude get");
 
                     if (profileProperties.DriverSiteOverride)
                     {
@@ -2533,21 +2532,52 @@ namespace ASCOM.TTS160.Telescope
                         double siteLongitude = -1 * utilities.DMSToDegrees(result); //correct to West negative
                                                                                     //double siteLongitude = utilities.DMSToDegrees(result);
 
-                        LogMessage("SiteLongitude", "Get - " + utilities.DegreesToDMS(siteLongitude, ":", ":"));
+                        LogMessage("SiteLongitude get", utilities.DegreesToDMS(siteLongitude, ":", ":",""));
                         return siteLongitude;
                     }
 
                 }
                 catch (Exception ex)
                 {
-                    LogMessage("siteLongitude Get", $"Error: {ex.Message}");
+                    LogMessage("SiteLongitude get", $"Error: {ex.Message}");
                     throw;
                 }
             }
             set
             {
-                LogMessage("SiteLongitude Set", "Not implemented");
+                LogMessage("SiteLongitude set", "Not implemented");
                 throw new PropertyNotImplementedException("SiteLongitude", true);
+            }
+        }
+
+        internal static double SiteLongitudeInit
+        {
+            get
+            {
+                LogMessage("SiteLongitudeInit get", "Getting Site Longitude");
+                try
+                {
+
+                    LogMessage("SiteLongitudeInit get", "Getting Site Longitude from the mount");
+                    CheckConnected("SiteLongitudeInit get");
+
+                    //var result = CommandString(":Gg#", true);
+                    var result = Commander(":Gg#", true, 2);
+                    //:Gg# Get Site Longitude
+                    //Returns: sDDD*MM#, east negative
+
+                    //New firmware is now West Negative when entering in handpad, reports as east negative still
+                    double siteLongitude = -1 * utilities.DMSToDegrees(result); //correct to West negative
+                    //double siteLongitude = utilities.DMSToDegrees(result);
+                    LogMessage("SiteLongitudeInit get", utilities.DegreesToDMS(siteLongitude, ":", ":",""));
+                    return siteLongitude;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("siteLongitudeInit get", $"Error: {ex.Message}");
+                    throw;
+                }
             }
         }
 
@@ -2587,7 +2617,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void SlewToAltAz(double Azimuth, double Altitude)
         {
-            tl.LogMessage("SlewToAltAz", "Not implemented");
+            LogMessage("SlewToAltAz", "Not implemented");
             throw new MethodNotImplementedException("SlewToAltAz");
             /*
             try
@@ -2659,7 +2689,7 @@ namespace ASCOM.TTS160.Telescope
         /// <param name="Altitude">Altitude to which to move to</param>
         internal static void SlewToAltAzAsync(double Azimuth, double Altitude)
         {
-            tl.LogMessage("SlewToAltAzAsync", "Not implemented");
+            LogMessage("SlewToAltAzAsync", "Not implemented");
             throw new MethodNotImplementedException("SlewToAltAzAsync");
             /*
             try
@@ -2726,7 +2756,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void SlewToCoordinates(double RightAscension, double Declination)
         {
-            tl.LogMessage("SlewToCoordinates", "Setting Coordinates as Target and Slewing");
+            LogMessage("SlewToCoordinates", "Setting Coordinates as Target and Slewing");
             try
             {
                 CheckConnected("SlewToCoordinates");
@@ -2755,7 +2785,7 @@ namespace ASCOM.TTS160.Telescope
             }
             catch (Exception ex)
             {
-                tl.LogMessage("SlewToCoordinates", $"Error: {ex.Message}");
+                LogMessage("SlewToCoordinates", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -2767,7 +2797,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void SlewToCoordinatesAsync(double RightAscension, double Declination)
         {
-            tl.LogMessage("SlewToCoordinatesAsync", "Setting Coordinates as Target and Slewing");
+            LogMessage("SlewToCoordinatesAsync", "Setting Coordinates as Target and Slewing");
             try
             {
                 CheckConnected("SlewToCoordinatesAsync");
@@ -2791,13 +2821,13 @@ namespace ASCOM.TTS160.Telescope
                 {
                     throw new ASCOM.InvalidValueException($"Invalid Right Ascension: {RightAscension}");
                 }
-                tl.LogMessage("SlewToCoordinatesAsync", "Starting Async Slew: RA - " + RightAscension.ToString() + "; Dec - " + Declination.ToString());
+                LogMessage("SlewToCoordinatesAsync", "Starting Async Slew: RA - " + RightAscension.ToString() + "; Dec - " + Declination.ToString());
                 SlewToTargetAsync();
-                tl.LogMessage("SlewToCoordinatesAsync", "Slew Commenced");
+                LogMessage("SlewToCoordinatesAsync", "Slew Commenced");
             }
             catch (Exception ex)
             {
-                tl.LogMessage("SlewToCoordinatesAsync", $"Error: {ex.Message}");
+                LogMessage("SlewToCoordinatesAsync", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -2810,7 +2840,7 @@ namespace ASCOM.TTS160.Telescope
 
         internal static void SlewToTarget()
         {
-            tl.LogMessage("SlewToTarget", "Slewing To Target");
+            LogMessage("SlewToTarget", "Slewing To Target");
 
             try
             {
@@ -2822,10 +2852,7 @@ namespace ASCOM.TTS160.Telescope
 
                 if (MiscResources.IsSlewingToTarget) //Are we currently in a GoTo?
                 {
-                    //ToDo: Decide whether to throw SlewInProgress exception or simply wait...
-
                     throw new InvalidOperationException("Error: GoTo In Progress");
-                    //while (MiscResources.IsSlewingToTarget) { utilities.WaitForMilliseconds(200); }
                 }
 
                 bool wasTracking = Tracking;
@@ -2836,7 +2863,7 @@ namespace ASCOM.TTS160.Telescope
 
                 //bool result = CommandBool(":MS#", true);
                 bool result = bool.Parse(Commander(":MS#", true, 1));
-                if (result) { throw new Exception("Unable to slew:" + result + " Object Below Horizon"); }  //Need to review other implementation
+                if (result) { throw new Exception("Unable to slew:" + result + " Object Below Horizon"); }
 
                 Slewing = true;
                 MiscResources.IsSlewingToTarget = true;
@@ -2860,7 +2887,6 @@ namespace ASCOM.TTS160.Telescope
                             throw new ASCOM.DriverException("SlewToTarget Failed: Timeout");
                         }
                     }
-                    //utilities.WaitForMilliseconds(SlewSettleTime * 1000);
                     Thread.Sleep(SlewSettleTime * 1000);
                     Slewing = false;
                     MiscResources.IsSlewingToTarget = false;
@@ -2879,20 +2905,14 @@ namespace ASCOM.TTS160.Telescope
                     int interval = 100; //100 msec between readings
                     double RAold = RightAscension;
                     double Decold = Declination;
-                    //var CoordOld = GetTelescopeRaAndDec();  //Get initial readings
 
                     while (inc >= 0)
                     {
                         utilities.WaitForMilliseconds(interval); //let the mount move a bit
-                        //var CoordNew = GetTelescopeRaAndDec(); //get telescope coords
                         double RAnew = RightAscension;
                         double Decnew = Declination;
-                        //double RADelt = CoordNew.RightAscension - CoordOld.RightAscension;
-                        //double DecDelt = CoordNew.Declination - CoordOld.Declination;
                         double RADelt = RAnew - RAold;
                         double DecDelt = Decnew - Decold;
-                        //double RADeltTarg = CoordNew.RightAscension - TargRA;
-                        //double DecDeltTarg = CoordNew.Declination - TargDec;
                         double RADeltTarg = RAnew - TargRA;
                         double DecDeltTarg = Decnew - TargDec;
                         resid = Math.Sqrt(Math.Pow(RADelt, 2) + Math.Pow(DecDelt, 2)); //need to convert this to alt/az rather than RA/Dec
@@ -2934,7 +2954,6 @@ namespace ASCOM.TTS160.Telescope
                                 case 0:
                                     Slewing = false;
                                     MiscResources.IsSlewingToTarget = false;
-                                    //CommandBlind(":Q#", true);
                                     Commander(":Q#", true, 0);
                                     throw new ASCOM.DriverException("SlewToTarget Failed");
                                 default:
@@ -2952,20 +2971,16 @@ namespace ASCOM.TTS160.Telescope
                         }
 
                         RAold = RAnew;
-                        //CoordOld.RightAscension = CoordNew.RightAscension;
                         Decold = Decnew;
-                        //CoordOld.Declination = CoordNew.Declination;
                         RAnew = 0;
-                        //CoordNew.RightAscension = 0;
                         Decnew = 0;
-                        //CoordNew.Declination = 0;
 
                     }
                 }
             }
             catch (Exception ex)
             {
-                tl.LogMessage("SlewToTarget", $"Error: {ex.Message}");
+                LogMessage("SlewToTarget", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -2990,20 +3005,15 @@ namespace ASCOM.TTS160.Telescope
 
                 if (MiscResources.IsSlewingToTarget) //Are we currently in a GoTo?
                 {
-                    //ToDo: Decide whether to throw SlewInProgress exception or simply wait...
-
                     throw new ASCOM.InvalidOperationException("Error: GoTo In Progress");
-                    //while (MiscResources.IsSlewingToTarget) { utilities.WaitForMilliseconds(200); }
                 }
 
-                //double TargRA = MiscResources.Target.RightAscension;
-                //double TargDec = MiscResources.Target.Declination;
-                //Assume Target is valid due to setting checks
 
                 //bool result = CommandBool(":MS#", true);
                 bool result = bool.Parse(Commander(":MS#", true, 1));
                 if (result) { throw new ASCOM.InvalidOperationException("Unable to slew: target below horizon"); }  //Need to review other implementation
-
+                MiscResources.SlewTarget.RightAscension = MiscResources.Target.RightAscension;
+                MiscResources.SlewTarget.Declination = MiscResources.Target.Declination;
                 Slewing = true;
                 MiscResources.IsSlewingToTarget = true;  //Might be redundant...
                 MiscResources.IsSlewingAsync = true;
@@ -3011,7 +3021,7 @@ namespace ASCOM.TTS160.Telescope
             }
             catch (Exception ex)
             {
-                tl.LogMessage("SlewToTargetAsync", $"Error: {ex.Message}");
+                LogMessage("SlewToTargetAsync", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -3027,46 +3037,128 @@ namespace ASCOM.TTS160.Telescope
             {
                 try
                 {
+                    
                     CheckConnected("Slewing");
-                    tl.LogMessage("Slewing - Get", "Getting Slew Status");
+                    LogMessage("Slewing - Get", "Getting Slew Status");
                     //Catching the end of an async slew event
                     //TODO - Add error checking to see if we actually ended where we wanted
-                    if ((MiscResources.IsSlewing) && (MiscResources.IsSlewingAsync) && (Tracking))
+                    if (MiscResources.IsSlewing && MiscResources.IsSlewingAsync && Tracking)  //If doing a slew (IsSlewingAsync = true), need an additional error check at end to confirm mount is ok.
                     {
-                        MiscResources.IsSlewingToTarget = false;
-                        MiscResources.IsSlewingAsync = false;
                         if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart == DateTime.MinValue))
                         {
                             MiscResources.SlewSettleStart = DateTime.Now;
-                            tl.LogMessage("Slewing Status", false.ToString() + "; Commencing Slew Settling");
+                            LogMessage("Slewing Status", $"{false}; Commencing Slew Settling");
                             return MiscResources.IsSlewing;
+                        }
+                        else if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart > DateTime.MinValue))
+                        {
+                            TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
+                            if (ts.TotalSeconds >= SlewSettleTime)
+                            {
+                                LogMessage("Slewing Status", $"{false}; slew settle complete");
+                                MiscResources.IsSlewing = false;
+                                MiscResources.IsSlewingToTarget = false;
+                                MiscResources.IsSlewingAsync = false;
+                                MiscResources.SlewSettleStart = DateTime.MinValue;
+
+                                //Check that final location is within 1' of target, else throw an error
+                                double RA = RightAscension * 15;
+                                double Dec = Declination;
+                                double errdist = Math.Sqrt(Math.Pow(RA - MiscResources.SlewTarget.RightAscension * 15, 2) + Math.Pow(Dec - MiscResources.SlewTarget.Declination, 2)) / 60; //distance in minutes
+                                LogMessage("Slewing get", $"Slew error distance: {errdist} arcmin, Tolerance: 1 arcmin");
+
+                                if (errdist > 1.0) //See if errdistance is outside of tolerance
+                                {
+                                    string targRA = utilities.HoursToHMS(MiscResources.SlewTarget.RightAscension);
+                                    string targDec = utilities.DegreesToDMS(MiscResources.SlewTarget.Declination);
+                                    string actRA = utilities.HoursToHMS(RA / 15);
+                                    string actDec = utilities.DegreesToDMS(Dec);
+                                    LogMessage("Slewing get", $"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin");
+                                    throw new DriverException($"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin.  Check to ensure mount is operating correctly");
+                                    
+                                }
+                                return false;
+                            }
+                            else
+                            {
+                                LogMessage("Slewing Status", $"{true}; Slew Settling in progress");
+                                return MiscResources.IsSlewing;
+                            }
+
+                        }
+                        else if (SlewSettleTime == 0)
+                        {
+                            LogMessage("Slewing Status", $"{false}");
+                            MiscResources.IsSlewing = false;
+                            MiscResources.IsSlewingToTarget = false;
+                            MiscResources.IsSlewingAsync = false;
+                            MiscResources.SlewSettleStart = DateTime.MinValue;
+
+                            //Check that final location is within 1' of target, else throw an error
+                            double RA = RightAscension * 15;
+                            double Dec = Declination;
+                            double errdist = Math.Sqrt(Math.Pow(RA - MiscResources.Target.RightAscension * 15, 2) + Math.Pow(Dec - MiscResources.Target.Declination, 2)) / 60; //distance in minutes
+                            LogMessage("Slewing get", $"Slew error distance: {errdist} arcmin, Tolerance: 1 arcmin");
+
+                            if (errdist > 1.0) //See if errdistance is outside of tolerance
+                            {
+                                string targRA = utilities.HoursToHMS(MiscResources.Target.RightAscension);
+                                string targDec = utilities.DegreesToDMS(MiscResources.Target.Declination);
+                                string actRA = utilities.HoursToHMS(RA / 15);
+                                string actDec = utilities.DegreesToDMS(Dec);
+                                LogMessage("Slewing get", $"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin");
+                                throw new DriverException($"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin.  Check to ensure mount is operating correctly");
+                            }
+                            return false;
+                            
                         }
                         else
                         {
-                            tl.LogMessage("Slewing Status", false.ToString());
-                            MiscResources.IsSlewing = false;
-                            return false;
+                            LogMessage("Slewing get", "Unknown condition while checking slew status, please verify hardware is operating correctly");
+                            throw new DriverException("Unknown condition while checking slew status, please verify hardware is operating correctly");
                         }
                     }
-                    else if ((MiscResources.IsSlewing) && (MiscResources.SlewSettleStart > DateTime.MinValue))
+                    /*else if (!MiscResources.IsSlewingAsync && MiscResources.IsSlewing && Tracking)
                     {
-                        TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
-                        if (ts.TotalSeconds >= SlewSettleTime)
+                        if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart == DateTime.MinValue))
                         {
-                            tl.LogMessage("Slewing Status", false.ToString() + "; Slew Settling Complete");
+                            MiscResources.SlewSettleStart = DateTime.Now;
+                            LogMessage("Slewing Status", $"{false}; Commencing Slew Settling");
+                            return MiscResources.IsSlewing;
+                        }
+                        else if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart > DateTime.MinValue))
+                        {
+                            TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
+                            if (ts.TotalSeconds >= SlewSettleTime)
+                            {
+                                LogMessage("Slewing Status", $"{false}; Slew Settling Complete");
+                                MiscResources.IsSlewing = false;
+                                MiscResources.SlewSettleStart = DateTime.MinValue;
+                                return false;
+                            }
+                            else
+                            {
+                                LogMessage("Slewing Status", $"{true}; Slew Settling in progress");
+                                return MiscResources.IsSlewing;
+                            }
+                        }
+                        if (SlewSettleTime == 0)
+                        {
+                            LogMessage("Slewing Status", $"{false}");
                             MiscResources.IsSlewing = false;
                             MiscResources.SlewSettleStart = DateTime.MinValue;
                             return false;
                         }
                         else
                         {
-                            tl.LogMessage("Slewing Status", false.ToString() + "; Slew Settling in progress");
-                            return MiscResources.IsSlewing;
+                            LogMessage("Slewing get", "Unknown condition while checking slew status, please verify hardware is operating correctly");
+                            throw new DriverException("Unknown condition while checking slew status, please verify hardware is operating correctly");
                         }
-                    }
+
+                    }*/
                     else
                     {
-                        tl.LogMessage("Slewing Status", MiscResources.IsSlewing.ToString());
+                        LogMessage("Slewing Status", MiscResources.IsSlewing.ToString());
                         return MiscResources.IsSlewing;
                     }
 
@@ -3074,7 +3166,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Slewing", $"Error: {ex.Message}");
+                    LogMessage("Slewing", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -3107,17 +3199,14 @@ namespace ASCOM.TTS160.Telescope
                 T.Refraction = false;
                 T.SetAzimuthElevation(TAzimuth, TAltitude);
 
-                tl.LogMessage("SyncToAltAz", "PreSync: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
                 SyncToCoordinates(T.RATopocentric, T.DECTopocentric);
                 LogMessage("SyncToAltAz", "Complete");
-                LogMessage("SyncToAltAz", "Target: Az - " + TAzimuth.ToString() + "; Alt - " + TAltitude.ToString());
-                LogMessage("SyncToAltAz", "Derived Ra: " + utilities.HoursToHMS(T.RATopocentric, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(T.DECTopocentric, ":", ":"));
-                LogMessage("SyncToAltAz", "Current: Az - " + Azimuth.ToString() + "; Alt - " + Altitude.ToString());
-                LogMessage("SyncToAltAz", "Current: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
+                LogMessage("SyncToAltAz", $"Target: Az: {TAzimuth}; Alt: {TAltitude}");
+                LogMessage("SyncToAltAz", $"Current: Az: {Azimuth}; Alt: {Altitude}");
             }
             catch (Exception ex)
             {
-                tl.LogMessage("SyncToAltAz", $"Error: {ex.Message}");
+                LogMessage("SyncToAltAz", $"Error: {ex.Message}");
                 throw;
             }
         }
@@ -3152,15 +3241,12 @@ namespace ASCOM.TTS160.Telescope
                     throw new ASCOM.InvalidValueException($"Invalid Right Ascension: {RightAscension}");
                 }
 
-                LogMessage("SyncToCoordinates", "PreSync: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
+                LogMessage("SyncToCoordinates", "PreSync: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":","") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":",""));
                 var ret = Commander(":CM#", true, 2);
-                double dectoss1 = Declination;
-                Thread.Sleep(200);
-                double dectoss2 = Declination;
-                LogMessage("SyncToCoordinates", "DecCheck = " + (dectoss1 - dectoss2).ToString());
                 LogMessage("SyncToCoordinates", "Complete: " + ret);
-                LogMessage("SyncToCoordinates", "Target: Ra - " + utilities.HoursToHMS(TRightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(TDeclination, ":", ":"));
-                LogMessage("SyncToCoordinates", "Current: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
+                //Thread.Sleep(100);
+                LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":","") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":",""));
+                LogMessage("SyncToCoordinates", $"Current: Ra: " + utilities.HoursToHMS(RightAscension, ":", ":","") + "; Dec: " + utilities.DegreesToDMS(Declination, ":", ":",""));
 
             }
             catch (Exception ex)
@@ -3184,17 +3270,14 @@ namespace ASCOM.TTS160.Telescope
 
                 //TODO Tracking control is not implemented in TTS-160, no point in checking it.....IT NOW IS, TODO FIX IT!
 
-                LogMessage("SyncToTarget", "PreSync: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
+                LogMessage("SyncToTarget", "PreSync: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":","") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":",""));
                 //For some reason TTS-160 returns a message and not catching it causes
                 var ret = Commander(":CM#", true, 2);  //further commands to act funny (results are 1 order off despite the
                                                        //buffer clears)
-                double dectoss1 = Declination;
-                Thread.Sleep(200);
-                double dectoss2 = Declination;
-                LogMessage("SyncToTarget", $"DecCheck = {dectoss1 - dectoss2}");
                 LogMessage("SyncToTarget", "Complete: " + ret);
-                LogMessage("SyncToTarget", "Assumed Target: Ra - " + utilities.HoursToHMS(TargetRightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(TargetDeclination, ":", ":"));
-                LogMessage("SyncToTarget", "Current: Ra - " + utilities.HoursToHMS(RightAscension, ":", ":") + "; Dec - " + utilities.DegreesToDMS(Declination, ":", ":"));
+                //Thread.Sleep(100);
+                LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(TargetRightAscension, ":", ":","") + "; Dec: " + utilities.DegreesToDMS(TargetDeclination, ":", ":",""));
+                LogMessage("SyncToTarget", $"Current: Ra: " + utilities.HoursToHMS(RightAscension, ":", ":","") + "; Dec: " + utilities.DegreesToDMS(Declination, ":", ":",""));
             }
             catch (Exception ex)
             {
@@ -3217,7 +3300,7 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("TargetDeclination");
                     if (MiscResources.IsTargetDecSet)
                     {
-                        tl.LogMessage("TargetDeclination Get", "Target Dec Get to:" + MiscResources.Target.Declination);
+                        LogMessage("TargetDeclination get", "Target Dec Get to:" + MiscResources.Target.Declination);
                         return MiscResources.Target.Declination;
                     }
                     else
@@ -3227,7 +3310,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Target Declination Get", $"Error: {ex.Message}");
+                    LogMessage("Target Declination get", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -3236,7 +3319,7 @@ namespace ASCOM.TTS160.Telescope
             {
                 try
                 {
-                    LogMessage("TargetDeclination Set", "Setting Target Dec");
+                    LogMessage("TargetDeclination set", "Setting Target Dec");
                     CheckConnected("TargetDeclination");
                     if (value < -90)
                     {
@@ -3261,7 +3344,7 @@ namespace ASCOM.TTS160.Telescope
 
                         if (!result) { throw new ASCOM.InvalidValueException("Invalid Target Declination:" + targDec); }
 
-                        LogMessage("TargetDeclination Set", "Target Dec Set to:" + targDec);
+                        LogMessage("TargetDeclination Set", "Target Dec Set to: " + targDec);
                         MiscResources.Target.Declination = value;
                         if (!MiscResources.IsTargetDecSet)
                         {
@@ -3296,7 +3379,7 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("TargetRightAscension");
                     if (MiscResources.IsTargetRASet)
                     {
-                        tl.LogMessage("TargetRightAscension Get", "Target RA Get to:" + MiscResources.Target.RightAscension);
+                        tl.LogMessage("TargetRightAscension get", "Target RA Get to:" + MiscResources.Target.RightAscension);
                         return MiscResources.Target.RightAscension;
                     }
                     else
@@ -3306,13 +3389,13 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Target Right Ascension Get", $"Error: {ex.Message}");
+                    LogMessage("Target Right Ascension get", $"Error: {ex.Message}");
                     throw;
                 }
             }
             set
             {
-                tl.LogMessage("TargetRightAscension Set", "Setting Target RA");
+                LogMessage("TargetRightAscension set", "Setting Target RA");
                 try
                 {
                     CheckConnected("Set Target RA");
@@ -3331,7 +3414,7 @@ namespace ASCOM.TTS160.Telescope
 
                         if (!result) { throw new ASCOM.InvalidValueException("Invalid Target Right Ascension:" + targRA); }
 
-                        tl.LogMessage("TargetRightAscension Set", "Target RA Set to:" + targRA);
+                        LogMessage("TargetRightAscension set", "Target RA Set to:" + targRA);
                         MiscResources.Target.RightAscension = value;
                         if (!MiscResources.IsTargetRASet)
                         {
@@ -3346,7 +3429,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Target Right Ascension Set", $"Error: {ex.Message}");
+                    LogMessage("TargetRightAscension set", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -3362,15 +3445,15 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
                     CheckConnected("GetTracking");
-                    tl.LogMessage("Tracking Get", "Retrieving Tracking Status");
+                    LogMessage("Tracking get", "Retrieving Tracking Status");
                     var ret = Commander(":GW#", true, 2);
                     bool tracking = (ret[1] == 'T');
-                    tl.LogMessage("Tracking Get", "Get - " + tracking.ToString());
+                    LogMessage("Tracking get", $"{tracking}");
                     return tracking;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Tracking Get", $"Error: {ex.Message}");
+                    LogMessage("Tracking Get", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -3383,15 +3466,15 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("SetTracking");
                     CheckSlewing("SetTracking");
 
-                    tl.LogMessage("Tracking Set", "Set Tracking Enabled to: " + value.ToString());
+                    LogMessage("Tracking set", $"Set Tracking Enabled to: {value}");
                     if (value) { Commander(":T1#", true, 0); }
                     else if (!value) { Commander(":T0#", true, 0); }
-                    else { throw new ASCOM.InvalidValueException("Expected True or False, received: " + value.ToString()); }
+                    else { throw new ASCOM.InvalidValueException($"Expected True or False, received: {value}"); }
                     MiscResources.TrackSetFollower = value;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Tracking Set", $"Error: {ex.Message}");
+                    LogMessage("Tracking set", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -3409,12 +3492,12 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("TrackingRate Get");
 
-                    tl.LogMessage("TrackingRate Get", $"{MiscResources.TrackingRateCurrent}");
+                    LogMessage("TrackingRate Get", $"{MiscResources.TrackingRateCurrent}");
                     return MiscResources.TrackingRateCurrent;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("TrackingRate Get", $"Error: {ex.Message}");
+                    LogMessage("TrackingRate Get", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -3426,7 +3509,7 @@ namespace ASCOM.TTS160.Telescope
                 {
 
                     CheckConnected("SetTrackingRate");
-                    tl.LogMessage("TrackingRate Set", "Setting Tracking Rate: " + value.ToString());
+                    LogMessage("TrackingRate Set", "Setting Tracking Rate: " + value.ToString());
                     switch (value)
                     {
                         case DriveRates.driveSidereal:
@@ -3541,11 +3624,13 @@ namespace ASCOM.TTS160.Telescope
                     //resBool = CommandBool(":SL" + newtime + "#", true);
                     resBool = bool.Parse(Commander(":SL" + newtime + "#", true, 1));
                     //resBool = char.GetNumericValue(res[0]) == 1;
+                    LogMessage("UTCDate set", "Issuing a throwaway SiderealTime call to ensure next UTCDate pull provides accurate time");
+                    double siderealthrow = SiderealTime; //Firmware bug, ensures the next read handpad time is correct
                     if (!resBool) { throw new ASCOM.InvalidValueException("UTC Date Set Invalid Time: " + newtime); }
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("UTCDate Set", $"Error: {ex.Message}");
+                    LogMessage("UTCDate Set", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -3557,7 +3642,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void Unpark()
         {
-            tl.LogMessage("Unpark", "Not implemented");
+            LogMessage("Unpark", "Not implemented");
             throw new MethodNotImplementedException("Unpark");
         }
 

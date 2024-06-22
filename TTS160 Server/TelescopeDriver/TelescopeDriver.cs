@@ -74,17 +74,17 @@ namespace ASCOM.TTS160.Telescope
                 // Initialise the hardware if required
                 TelescopeHardware.InitializeHardware();
 
-                LogMessage("Telescope", "Starting driver initialisation");
+                LogMessage("Telescope", "Starting driver initialization");
                 LogMessage("Telescope", $"ProgID: {DriverProgId}, Description: {DriverDescription}");
 
                 connectedState = false; // Initialise connected to false
 
 
-                LogMessage("Telescope", "Completed initialisation");
+                LogMessage("Telescope", "Completed initialization");
             }
             catch (Exception ex)
             {
-                LogMessage("Telescope", $"Initialisation exception: {ex}");
+                LogMessage("Telescope", $"Initialization exception: {ex}");
                 MessageBox.Show($"{ex.Message}", "Exception creating ASCOM.TTS160.Telescope", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

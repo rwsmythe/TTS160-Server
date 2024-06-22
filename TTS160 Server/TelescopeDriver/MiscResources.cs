@@ -109,6 +109,14 @@ namespace ASCOM.TTS160
 
         }
 
+        private static readonly ThreadSafeValue<EquatorialCoordinates> _SlewTarget = new EquatorialCoordinates();
+        public static EquatorialCoordinates SlewTarget
+        {
+            get => _SlewTarget;
+            internal set => _SlewTarget.Set(value);
+
+        }
+
         public static readonly ThreadSafeValue<short> _SettleTime = 2;
         public static short SettleTime
         {

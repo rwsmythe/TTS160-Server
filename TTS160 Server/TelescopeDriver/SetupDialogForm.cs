@@ -40,6 +40,16 @@ namespace ASCOM.TTS160
             {
                 // Ignore any errors here in case the PC does not have any COM ports that can be selected
             }
+            try
+            {
+                double driversitelatbuff = utilities.DMSToDegrees(textBoxDriverSiteLat.Text);
+                double driversitelongbuff = utilities.DMSToDegrees(textBoxDriverSiteLong.Text);
+            }
+            catch(Exception ex)
+            {
+                MessageBox.Show("Error: Ensure Driver Latitude and Longitude are of the form: DD:MM:SS or sDDD:MM:SS" + Environment.NewLine + ex.Message);
+                throw new InvalidValueException(ex.Message);
+            }
             tl.Enabled = chkTrace.Checked;
         }
 
@@ -145,31 +155,44 @@ namespace ASCOM.TTS160
             else
             if (radioButtonGR4.Checked) { HCGuideRate = 4; }
 
-            var profileProperties = new ProfileProperties
+            try
             {
+                double driversitelatbuff = utilities.DMSToDegrees(textBoxDriverSiteLat.Text);
+                double driversitelongbuff = utilities.DMSToDegrees(textBoxDriverSiteLong.Text);
 
-                TraceLogger = chkTrace.Checked,
-                ComPort = comboBoxComPort.SelectedItem.ToString(),
-                SiteElevation = Double.Parse(SiteAltTxt.Text),
-                SlewSettleTime = Int16.Parse(SlewSetTimeTxt.Text),
-                SiteLatitude = CurProfile.SiteLatitude,
-                SiteLongitude = CurProfile.SiteLongitude,
-                CompatMode = CompatMode,
-                CanSetTrackingOverride = CanSetTrackingOverride,
-                CanSetGuideRatesOverride = CanSetGuideRatesOverride,
-                SyncTimeOnConnect = TimeSyncChk.Checked,
-                GuideComp = GuideComp,
-                GuideCompMaxDelta = Int32.Parse(textMaxDelta.Text),
-                GuideCompBuffer = Int32.Parse(textBuffer.Text),
-                TrackingRateOnConnect = DefaultTracking,
-                PulseGuideEquFrame = checkBoxPulseGuideTopoEqu.Checked,
-                DriverSiteOverride = checkBoxDriverSiteOverride.Checked,
-                DriverSiteLatitude = utilities.DMSToDegrees(textBoxDriverSiteLat.Text),
-                DriverSiteLongitude = utilities.DMSToDegrees(textBoxDriverSiteLong.Text),
-                HCGuideRate = HCGuideRate
-            };
+                var profileProperties = new ProfileProperties
+                {
 
-            return profileProperties;
+                    TraceLogger = chkTrace.Checked,
+                    ComPort = comboBoxComPort.SelectedItem.ToString(),
+                    SiteElevation = Double.Parse(SiteAltTxt.Text),
+                    SlewSettleTime = Int16.Parse(SlewSetTimeTxt.Text),
+                    SiteLatitude = CurProfile.SiteLatitude,
+                    SiteLongitude = CurProfile.SiteLongitude,
+                    CompatMode = CompatMode,
+                    CanSetTrackingOverride = CanSetTrackingOverride,
+                    CanSetGuideRatesOverride = CanSetGuideRatesOverride,
+                    SyncTimeOnConnect = TimeSyncChk.Checked,
+                    GuideComp = GuideComp,
+                    GuideCompMaxDelta = Int32.Parse(textMaxDelta.Text),
+                    GuideCompBuffer = Int32.Parse(textBuffer.Text),
+                    TrackingRateOnConnect = DefaultTracking,
+                    PulseGuideEquFrame = checkBoxPulseGuideTopoEqu.Checked,
+                    DriverSiteOverride = checkBoxDriverSiteOverride.Checked,
+                    DriverSiteLatitude = driversitelatbuff,
+                    DriverSiteLongitude = driversitelongbuff,
+                    HCGuideRate = HCGuideRate
+                };
+
+                return profileProperties;
+            }
+            catch(Exception ex)
+            {
+                throw;
+            }
+
+
+
         }
 
         public void SetProfile(ProfileProperties profileProperties)
@@ -191,7 +214,7 @@ namespace ASCOM.TTS160
             }
             else
             {
-                SiteLatlbl.Text = profileProperties.SiteLatitude.ToString();
+                SiteLatlbl.Text = utilities.DegreesToDMS(profileProperties.SiteLatitude, ":", ":", "");
             }
 
             if (profileProperties.SiteLongitude == 200)
@@ -200,7 +223,7 @@ namespace ASCOM.TTS160
             }
             else
             {
-                SiteLonglbl.Text = profileProperties.SiteLongitude.ToString();
+                SiteLonglbl.Text = utilities.DegreesToDMS(profileProperties.SiteLongitude,":",":","");
             }
 
             switch (profileProperties.CompatMode)
@@ -292,8 +315,8 @@ namespace ASCOM.TTS160
 
             TimeSyncChk.Checked = profileProperties.SyncTimeOnConnect;
 
-            textBoxDriverSiteLat.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLatitude, ":", ":");
-            textBoxDriverSiteLong.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLongitude, ":", ":");
+            textBoxDriverSiteLat.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLatitude, ":", ":","", 1);
+            textBoxDriverSiteLong.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLongitude, ":", ":","",1);
             checkBoxDriverSiteOverride.Checked = profileProperties.DriverSiteOverride;
 
             checkBoxPulseGuideTopoEqu.Checked = profileProperties.PulseGuideEquFrame;
