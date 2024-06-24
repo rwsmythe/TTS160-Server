@@ -137,6 +137,34 @@ namespace ASCOM.TTS160
             internal set => _SlewSettleStart.Set(value);
         }
 
+        private static readonly ThreadSafeValue<DateTime> _EWMoveAxisSettleStart = DateTime.MinValue;
+        public static DateTime EWMoveAxisSettleStart
+        {
+            get => _EWMoveAxisSettleStart;
+            internal set => _EWMoveAxisSettleStart.Set(value);
+        }
+
+        private static readonly ThreadSafeValue<DateTime> _NSMoveAxisSettleStart = DateTime.MinValue;
+        public static DateTime NSMoveAxisSettleStart
+        {
+            get => _NSMoveAxisSettleStart;
+            internal set => _NSMoveAxisSettleStart.Set(value);
+        }
+
+        private static readonly ThreadSafeValue<Boolean> _EWMoveAxisStopFlag = false;
+        public static Boolean EWMoveAxisStopFlag
+        {
+            get => _EWMoveAxisStopFlag;
+            internal set => _EWMoveAxisStopFlag.Set(value);
+        }
+
+        private static readonly ThreadSafeValue<Boolean> _NSMoveAxisStopFlag = false;
+        public static Boolean NSMoveAxisStopFlag
+        {
+            get => _NSMoveAxisStopFlag;
+            internal set => _NSMoveAxisStopFlag.Set(value);
+        }
+
         private static readonly ThreadSafeValue<DriveRates> _TrackingRateCurrent = DriveRates.driveSidereal;
         public static DriveRates TrackingRateCurrent
         {
