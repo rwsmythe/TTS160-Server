@@ -15,13 +15,15 @@
 //              near the end of 2022.  This driver is intended to be able to be maintained by the Panther community
 //              to prevent those issues from occuring in the future (or at least corrected more quickly!).
 //
-// Implements:	ASCOM Telescope interface version: 3
+// Implements:	ASCOM Telescope interface version: 4
 // Author:		Reid Smythe <rwsmythe@gmail.com>
 //
 // Edit Log:
 //
 // Date			Who	Vers	Description
 // -----------	---	-----	-------------------------------------------------------
+// 11Aug2024    RWS 355.0.0 Added advanced features included in the 355 firmware.
+// 14JUL2024    RWS 354.1.3 Added a short delay to CommandBlind commands to ensure there are no order collisions.
 // 23JUN2024    RWS 354.1.2 Removed version from driver name in chooser.  Added slew result checking to indicate possible slew error if mount stops early.
 //                          Changed stop move axis routine to by async IAW ASCOM standard
 // 20JUN2024    RWS 354.1.1 Corrected profile bug.  Refined Eq.Topo pulse guide.  Note that Conform will toss accuracy issues due to the mount reporting position only to the nearest second.
@@ -48,17 +50,20 @@
 // unused code can be deleted and this definition removed.
 #define Telescope
 
-using ASCOM.Astrometry.AstroUtils;
-using ASCOM.Astrometry.Transform;
 using ASCOM.DeviceInterface;
 using ASCOM.LocalServer;
 using ASCOM.Utilities;
+using ASCOM.Tools;
 using System;
 using System.Collections;
-using System.Diagnostics.Eventing.Reader;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Windows.Forms;
+using ASCOM.Astrometry.AstroUtils;
+using System.Threading.Tasks;
+using ASCOM.Common.Helpers;
+using Microsoft.VisualBasic;
 
 namespace ASCOM.TTS160.Telescope
 {
@@ -81,26 +86,20 @@ namespace ASCOM.TTS160.Telescope
         /// ASCOM DeviceID (COM ProgID) for this driver.
         /// The DeviceID is used by ASCOM applications to load the driver at runtime.
         /// </summary>
-        internal static string driverID = "ASCOM.TTS160.Telescope";
         /// This driver is intended to specifically support TTS-160 Panther mount, based on the LX200 protocol.
         /// Driver description that displays in the ASCOM Chooser.
         /// </summary>
-        private static readonly string driverVersion = "354.1.2";
-        private static readonly string driverDescription = "TTS-160 v." + driverVersion;
+        private static readonly string driverVersion = "355.0.0";
 
-        //private Serial serialPort; ->>>Moved to SharedSerial in SharedResources
-
+        #region Default Profile values
         internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
         internal static string comPortDefault = "COM1";
         internal static string traceStateProfileName = "Trace Level";
         internal static string traceStateDefault = "false";
-
-        //internal static string comPort; // Variables to hold the current device configuration
-
         internal static string siteElevationProfileName = "Site Elevation";
         internal static string siteElevationDefault = "0";
         internal static string SlewSettleTimeName = "Slew Settle Time";
-        internal static string SlewSettleTimeDefault = "2";
+        internal static string SlewSettleTimeDefault = "1";
         internal static string SiteLatitudeName = "Site Latitude";
         internal static string SiteLatitudeDefault = "100";
         internal static string SiteLongitudeName = "Site Longitude";
@@ -120,7 +119,7 @@ namespace ASCOM.TTS160.Telescope
         internal static string TrackingRateOnConnectName = "Tracking Rate on Connect";
         internal static string TrackingRateOnConnectDefault = "0";
         internal static string PulseGuideEquFrameName = "PulseGuide Equatorial Frame";
-        internal static string PulseGuideEquFrameDefault = "false";
+        internal static string PulseGuideEquFrameDefault = "true";
         internal static string DriverSiteOverrideName = "Driver Site Override";
         internal static string DriverSiteOverrideDefault = "false";
         internal static string DriverSiteLatitudeName = "Driver Site Latitude";
@@ -129,21 +128,35 @@ namespace ASCOM.TTS160.Telescope
         internal static string DriverSiteLongitudeDefault = "0";
         internal static string HCGuideRateName = "Handcontroller Guide Rate";
         internal static string HCGuideRateDefault = "2";
+        internal static string PulseGuideDurationCompliantName = "PulseGuide Duration ASCOM Compliance"; //ASCOM compliance requires IsPulseGuiding to be true for the entire PulseGuide duration
+        internal static string PulseGuideDurationCompliantDefault = "true"; //Unduly limited, should not normally need to be enabled
+        internal static string AlignOnSyncEnabledName = "Align on Sync Mode";
+        internal static string AlignOnSyncEnabledDefault = "false";
+        internal static string AlignOnSyncPointsName = "Align on Sync Mode Sync Points";
+        internal static string AlignOnSyncPointsDefault = "0";
+        #endregion
 
+        #region Constants
         internal static int MOVEAXIS_WAIT_TIME = 2000; //minimum delay between moveaxis commands
         internal static int SYNC_WAIT_TIME = 200; //delay time to ensure position is updated in mount following sync
+        internal static bool DEV_FIRMWARE = false;
+        #endregion
 
+        #region Variable Declarations
         private static string DriverProgId = ""; // ASCOM DeviceID (COM ProgID) for this driver, the value is set by the driver's class initialiser.
         private static string DriverDescription = ""; // The value is set by the driver's class initialiser.
-        //internal static string comPort; // COM port name (if required)
         private static bool connectedState; // Local server's connected state
         private static bool runOnce = false; // Flag to enable "one-off" activities only to run once.
+        private static bool connecting; // Completion variable for use with the Connect and Disconnect methods
         internal static Util utilities; // ASCOM Utilities object for use as required
-        internal static AstroUtils astroUtilities; // ASCOM AstroUtilities object for use as required
-        internal static TraceLogger tl; // Local server's trace logger object for diagnostic log with information that you specify
-        internal static readonly Transform T;  // Variable to provide coordinate Transforms
+        internal static AstroUtils astroUtils;  //Used for RA Conditioning
+        internal static AstroUtilities astroUtilities; // ASCOM AstroUtilities object for use as required
+        internal static Utilities.TraceLogger tl; // Local server's trace logger object for diagnostic log with information that you specify
+        internal static Transform T;  // Variable to provide coordinate Transforms
         internal static readonly object LockObject = new object();  // object used for locking to prevent multiple drivers accessing common code at the same time
         internal static ProfileProperties profileProperties = new ProfileProperties(); //Accessible profile to apply changes to
+        private static List<Guid> uniqueIds = new List<Guid>();
+        #endregion
 
         /// <summary>
         /// Initializes a new instance of the <see cref="TTS160"/> class.
@@ -151,20 +164,33 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         static TelescopeHardware()
         {
-            tl = new TraceLogger("", "TTS160.Hardware v. " + driverVersion);
-            profileProperties = ReadProfile();
-            tl.Enabled = profileProperties.TraceLogger;
+            try
+            {
+                tl = new Utilities.TraceLogger("", $"TTS160.Hardware v. {driverVersion}");
 
-            T = new Transform();
+                DriverProgId = Telescope.DriverProgId; // Get this device's ProgID so that it can be used to read the Profile configuration values
 
-            LogMessage("Telescope", "Completed start-up");
+                profileProperties = ReadProfile();
+                tl.Enabled = profileProperties.TraceLogger;
+
+                T = new Transform();
+
+                LogMessage("Telescope", "Completed start-up");
+            }
+            catch (Exception ex)
+            {
+                try { LogMessage("TelescopeHardware", $"Initialization exception: {ex}"); } catch { }
+                MessageBox.Show($"{ex.Message}", "Exception creating ASCOM.TTS160.Telescope", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw;
+            }
+
         }
 
         internal static void InitializeHardware()
         {
             // This method will be called every time a new ASCOM client loads your driver
-            LogMessage("InitializeHardware", $"Start.");
-
+            LogMessage("InitializeHardware", $"Start:");
+            //MessageBox.Show("Wait!");
             // Make sure that "one off" activities are only undertaken once
             if (runOnce == false)
             {
@@ -177,16 +203,14 @@ namespace ASCOM.TTS160.Telescope
 
                 connectedState = false; // Initialise connected to false
                 utilities = new Util(); //Initialise ASCOM Utilities object
-                astroUtilities = new AstroUtils(); // Initialise ASCOM Astronomy Utilities object
-
-                LogMessage("InitializeHardware", "Completed basic initialization");
+                astroUtilities = new AstroUtilities(); // Initialise ASCOM Astronomy Utilities object
+                astroUtils = new AstroUtils();
 
                 // Add your own "one off" device initialisation here e.g. validating existence of hardware and setting up communications
 
                 Slewing = false;
                 MiscResources.IsSlewing = false;
                 MiscResources.IsSlewingToTarget = false;
-                MiscResources.IsSlewingAsync = false;
                 MiscResources.SlewSettleStart = DateTime.MinValue;
                 MiscResources.EWMoveAxisSettleStart = DateTime.MinValue;
                 MiscResources.NSMoveAxisSettleStart = DateTime.MinValue;
@@ -201,11 +225,12 @@ namespace ASCOM.TTS160.Telescope
                 LogMessage("InitializeHardware", $"One-off initialization complete.");
                 runOnce = true; // Set the flag to ensure that this code is not run again
             }
+            LogMessage("InitializeHardware", "Completed basic initialization");
         }
 
 
         //
-        // PUBLIC COM INTERFACE ITelescopeV3 IMPLEMENTATION
+        // PUBLIC COM INTERFACE ITelescopeV4 IMPLEMENTATION
         //
 
         #region Common properties and methods.
@@ -298,7 +323,6 @@ namespace ASCOM.TTS160.Telescope
 
             lock (LockObject)
             {
-
                 try
                 {
                     CheckConnected("Commander");
@@ -362,12 +386,134 @@ namespace ASCOM.TTS160.Telescope
                 catch (Exception ex)
                 {
                     LogMessage("Commander", $"Error: {ex.Message}");
-                    throw;
+                   
+                    if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))  //This indicates a timeout while waiting for a response from the mount.  Usually seen when polling slewing status when it changes at the end of a goto
+                    {
+                        LogMessage("Commander", $"{ex}");
+                        LogMessage("Commander", $"isFailure: {(ex.HResult & 0x80000000) != 0}; facility: {(ex.HResult & 0x7FFF0000) >> 16}; code: {ex.HResult & 0xFFFF}");
+                        LogMessage("Commander", "Timeout Detected, retransmitting...");            
+                        try
+                        {
+                            int retx = 0;
+                            while (retx <= 5)  //Each loop iteration will be equal to the read timeout setting (RECEIVETIMEOUT in SharedResources)
+                            {
+                                LogMessage("Commander", $"Retry #: {retx + 1}");
+                                string result = CommanderReTx(command, commandtype);
+                                if (result.Equals("timeout"))
+                                {
+                                    retx += 1;                            
+                                }
+                                else
+                                {
+                                    LogMessage("Commander", $"Retry succeeded for {command} after {retx+1} retries.");
+                                    SharedResources.ClearReTxBuff();  //The mount will store commands and responses to return later, Any command sent is 1 to 1 with a response as applicable
+                                                                      //A timeout error will end up result in responses mismatched unless we clear the queue.  This loops through and clears the handpad queue that we filled with the retransmit attempt.
+                                    return result;
+                                }
+                            }
+                            LogMessage("Commander", $"Retry failed for {command} after {retx+1} retries.");
+                            LogMessage("Commander", $"Trying to clear buffer...");
+                            SharedResources.ClearReTxBuff();
+                            throw new DriverException($"Retry failed for {command} after {retx+1} retries");
+
+                        }
+                        catch (Exception ex1)
+                        {
+
+                            LogMessage("Commander Retransmit", $"Error: {ex1.Message}");
+                            throw ex1;
+
+                        }
+                        
+                    }
+                    else
+                    {
+                        throw ex;
+                    }
+
                 }
             }
         }
 
+        /// <summary>Retransmits the timed out command.</summary>
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="commandtype">Command type (blind, bool, string) indicating the expected response.</param>
+        /// <returns>A string response. If timeout is detected, it will return "timeout".
+        /// <para>This function will return either the mount response ("" for blind), "timeout" for a detected timeout, or throw an Exception in all other cases.</para>
+        /// </returns>
+        internal static string CommanderReTx(string command, int commandtype)
+        {
+            switch (commandtype)
+            {
+                case 0:
+                    try
+                    {
+                        LogMessage("Commander Retransmit", $"Blind - command {command}");
+                        SharedResources.SendMessage(command, commandtype);
+                        LogMessage("Commander Retransmit", $"Blind - {command} Completed");
+                        return "";
+                    }
+                    catch (Exception ex)
+                    {
+                        if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))
+                        {
+                            return "timeout";
+                        }
+                        else
+                        {
+                            LogMessage("Commander Retransmit", $"Blind - Error: {ex.Message}; Command: {command}");
+                            throw;
+                        }
+                    }
+                case 1:
+                    try
+                    {
+                        LogMessage("Commander Retransmit", $"Bool - command {command}");
+                        string retbool = SharedResources.SendMessage(command, commandtype);
+                        return retbool;
+                    }
+                    catch (Exception ex)
+                    {
+                        if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))
+                        {
+                            return "timeout";
+                        }
+                        else
+                        {
+                            LogMessage("Commander Retransmit", $"Blind - Error: {ex.Message}; Command: {command}");
+                            throw;
+                        }
+                    }
+                case 2:
+                    try
+                    {
+                        LogMessage("Commander Retransmit", $"String - command {command}");
+                        var result = SharedResources.SendMessage(command, commandtype);  //assumes that all return strings are # terminated...is this true?
+                                                                                         //tl.LogMessage("CommandString", "utilities.WaitForMilliseconds(TRANSMIT_WAIT_TIME);");
+                                                                                         //utilities.WaitForMilliseconds(TRANSMIT_WAIT_TIME); //limit transmit rate
+                                                                                         //tl.LogMessage("CommandString", "completed serial port receive...");
+                        LogMessage("Commander Retransmit", $"String - {command} Completed: {result}");
+                        return result;
+                    }
+                    catch (Exception ex)
+                    {
+                        if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))  //Indicates a timeout occurred
+                        {
+                            return "timeout";
+                        }
+                        else
+                        {
+                            LogMessage("Commander Retransmit", $"Blind - Error: {ex.Message}; Command: {command}");
+                            throw;
+                        }
+                    }
+                default:
+                    throw new ASCOM.DriverException("Invalid Command Type: " + commandtype.ToString());
+            }
+        }
+
         /// <summary>
+        /// [DEPRECATED]
         /// Transmits an arbitrary string to the device and does not wait for a response.
         /// Optionally, protocol framing characters may be added to the string before transmission.
         /// </summary>
@@ -385,6 +531,7 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
+        /// [DEPRECATED]
         /// Transmits an arbitrary string to the device and waits for a boolean response.
         /// Optionally, protocol framing characters may be added to the string before transmission.
         /// </summary>
@@ -405,6 +552,7 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
+        /// [DEPRECATED]
         /// Transmits an arbitrary string to the device and waits for a string response.
         /// Optionally, protocol framing characters may be added to the string before transmission.
         /// </summary>
@@ -439,80 +587,228 @@ namespace ASCOM.TTS160.Telescope
             utilities = null;
             astroUtilities.Dispose();
             astroUtilities = null;
+            astroUtils.Dispose();
+            astroUtils = null;
             T.Dispose();
 
         }
 
         /// <summary>
-        /// Set True to connect to the device hardware. Set False to disconnect from the device hardware.
-        /// You can also read the property to check whether it is connected. This reports the current hardware state.
+        /// Connect to the hardware if not already connected
         /// </summary>
-        /// <value><c>true</c> if connected to the hardware; otherwise, <c>false</c>.</value>
-        public static bool Connected
+        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <remarks>
+        /// The unique ID is stored to record that the driver instance is connected and to ensure that multiple calls from the same driver are ignored.
+        /// If this is the first driver instance to connect, the physical hardware link to the device is established
+        /// </remarks>
+        public static void Connect(Guid uniqueId)
+        {
+            //MessageBox.Show("Wait!");
+            LogMessage("Connect", $"Device instance unique ID: {uniqueId}");
+            LogMessage("Connect", $"Currently connected driver ids:");
+            foreach (Guid id in uniqueIds)
+            {
+                LogMessage("Connected", $" ID {id} is connected");
+            }
+
+            // Check whether this driver instance has already connected
+            if (uniqueIds.Contains(uniqueId)) // Instance already connected
+            {
+                // Ignore the request, the unique ID is already in the list
+                LogMessage("Connect", $"Ignoring request to connect because the device is already connected.");
+                return;
+            }
+
+            // Set the connection in progress flag
+            connecting = true;
+
+            // Driver instance not yet connected, so start a task to connect to the device hardware and return while the task runs in the background
+            // Discard the returned task value because this a "fire and forget" task
+            LogMessage("Connect", $"Starting Connect task...");
+            
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    // Set the Connected state to true, waiting until it completes
+                    LogMessage("ConnectTask", $"Setting connection state to true");
+                    SetConnected(uniqueId, true);
+                    LogMessage("ConnectTask", $"Connected set true");
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("ConnectTask", $"Exception - {ex.Message}\r\n{ex}");
+                    throw;
+                }
+                finally
+                {
+                    connecting = false;
+                    LogMessage("ConnectTask", $"Connecting set false");
+                }
+            });
+            
+            LogMessage("Connect", $"Connect task started OK");
+            LogMessage("Connect", $"Connected state: {Connected}");
+        }
+
+        /// <summary>
+        /// Disconnect from the device asynchronously using Connecting as the completion variable
+        /// </summary>
+        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <remarks>
+        /// The list of connected driver instance IDs is queried to determine whether this driver instance is connected and, if so, it is removed from the connection list. 
+        /// The unique ID ensures that multiple calls from the same driver are ignored.
+        /// If this is the last connected driver instance, the physical link to the device hardware is disconnected.
+        /// </remarks>
+        public static void Disconnect(Guid uniqueId)
+        {
+            LogMessage("Disconnect", $"Device instance unique ID: {uniqueId}");
+
+            
+            // Check whether this driver instance has already disconnected
+            if (!uniqueIds.Contains(uniqueId)) // Instance already disconnected
+            {
+                // Ignore the request, the unique ID is not in the list
+                LogMessage("Disconnect", $"Ignoring request to disconnect because the device is already disconnected.");
+                return;
+            }
+
+            // Set the Disconnect in progress flag
+            connecting = true;
+
+            // Start a task to disconnect from the device hardware and return while the task runs in the background
+            // Discard the returned task value because this a "fire and forget" task
+            LogMessage("Disconnect", $"Starting Disconnect task...");
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    // Set the Connected state to false, waiting until it completes
+                    LogMessage("DisconnectTask", $"Setting connection state to false");
+                    SetConnected(uniqueId, false);
+                    LogMessage("DisconnectTask", $"Connected set false");
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DisconnectTask", $"Exception - {ex.Message}\r\n{ex}");
+                    throw;
+                }
+                finally
+                {
+                    connecting = false;
+                    LogMessage("DisconnectTask", $"Connecting set false");
+                }
+            });
+            LogMessage("Disconnect", $"Disconnect task started OK");
+        }
+
+        /// <summary>
+        /// Completion variable for the asynchronous Connect() and Disconnect()  methods
+        /// </summary>
+        public static bool Connecting
         {
             get
             {
-                LogMessage("Connected get", $"{IsConnected}");
-                return IsConnected;
+                return connecting;
             }
-            set
-            {
-                //MessageBox.Show("Wait!");
-                LogMessage("Connected set", $"{value}");
+        }
 
-                if (value)
+        /// <summary>
+        /// Synchronously connect to or disconnect from the hardware
+        /// </summary>
+        /// <param name="uniqueId">Driver's unique ID</param>
+        /// <param name="newState">New state: Connected or Disconnected</param>
+        public static void SetConnected(Guid uniqueId, bool newState)
+        {
+            // Check whether we are connecting or disconnecting
+            if (newState) // We are connecting
+            {
+                // Check whether this driver instance has already connected
+                if (uniqueIds.Contains(uniqueId)) // Instance already connected
                 {
-                    if (!SharedResources.Connected)  //Check to see if we are connected at all
+                    // Ignore the request, the unique ID is already in the list
+                    LogMessage("SetConnected", $"Ignoring request to connect because the device is already connected.");
+                }
+                else // Instance not already connected, so connect it
+                {
+                    // Check whether this is the first connection to the hardware
+                    if (uniqueIds.Count == 0 && !SharedResources.Connected) // This is the first connection to the hardware so initiate the hardware connection (verify with old method)
                     {
-                        LogMessage("Connected Set", "No existing connection found, performing first time connect...");
+                        LogMessage("SetConnected", $"No existing connection found, performing first time connect...");
                         //First time connection
                         try
                         {
                             if (AtPark)
                             {
-                                LogMessage("Connected set", "Mount appears parked.  Cycle power and disconnect from all programs to connect");
+                                LogMessage("SetConnected", "Mount appears parked.  Cycle power and disconnect from all programs to connect");
                                 throw new ASCOM.ParkedException("Mount appears parked.  Cycle mount power and disconnect from all programs to connect");
                             }
 
                             //Define new serial object.  TTS-160 connects at 9600 baud, 8 data, no parity, 1 stop
                             SharedResources.comPort = profileProperties.ComPort;
-                            LogMessage("Connected set", $"Connecting to {profileProperties.ComPort}");
+                            LogMessage("SetConnected", $"Connecting to {profileProperties.ComPort}");
                             SharedResources.Connected = true;
                             connectedState = true;
                         }
                         catch (Exception ex)
                         {
-                            LogMessage("Connected set", $"Error when connecting: {ex.Message}");
+                            LogMessage("SetConnected", $"Error when connecting: {ex.Message}");
                             connectedState = false;
                             throw;
                         }
 
                         try
                         {
-                            LogMessage("Connected set", "Success");
-                            LogMessage("Connected set", "Connected with " + driverDescription);
-                            LogMessage("Connected set", "Updating Site Lat and Long");
+                            LogMessage("SetConnected", "Success");
+                            LogMessage("SetConnected", $"Connected with {Description}");
+                            LogMessage("SetConnected", $"Mount Name: {Commander(":GVP#", true, 2)}");
+                            string firmware = Commander(":GVN#", true, 2).TrimEnd('#');
+                            int devtest = 0;
+                            try
+                            {
+                                devtest = int.Parse(firmware.Substring(0,3));
+                            }
+                            catch
+                            {
+                                devtest = 0;
+                            }
+
+                            if (devtest >= 355)
+                            {
+                                DEV_FIRMWARE = true;
+                                LogMessage("SetConnected", $"Advanced firmware detected: {devtest}.  Enabling advanced features.");
+                            }
+                            else
+                            {
+                                DEV_FIRMWARE = false;
+                                LogMessage("SetConnected", $"Advanced firmware not detected: {devtest}.  Disabling advanced features.");
+                            }
+                            LogMessage("SetConnected", $"Mount Firmware Version: {firmware}");
+                            LogMessage("SetConnected", $"Mount Firmware Date: {Commander(":GVD#", true, 2)}");
+                            LogMessage("SetConnected", "Updating Site Lat and Long");
                             profileProperties.SiteLatitude = SiteLatitudeInit;
                             profileProperties.SiteLongitude = SiteLongitudeInit;
-                            LogMessage("Connected set", $"Mount Lat: {profileProperties.SiteLatitude}");
-                            LogMessage("Connected set", $"Mount Long: {profileProperties.SiteLongitude}");
-                            LogMessage("Connected set", $"Driver Site Location Override: {profileProperties.DriverSiteOverride}");
-                            LogMessage("Connected set", $"Driver Lat: {profileProperties.DriverSiteLatitude}");
-                            LogMessage("Connected set", $"Driver Long: {profileProperties.DriverSiteLongitude}");
-                            LogMessage("Connected set", $"Equatorial Pulse Guide: {profileProperties.PulseGuideEquFrame}");
+                            LogMessage("SetConnected", $"Mount Lat: {profileProperties.SiteLatitude}");
+                            LogMessage("SetConnected", $"Mount Long: {profileProperties.SiteLongitude}");
+                            LogMessage("SetConnected", $"Driver Site Location Override: {profileProperties.DriverSiteOverride}");
+                            LogMessage("SetConnected", $"Driver Lat: {profileProperties.DriverSiteLatitude}");
+                            LogMessage("SetConnected", $"Driver Long: {profileProperties.DriverSiteLongitude}");
+                            LogMessage("SetConnected", $"Equatorial Pulse Guide: {profileProperties.PulseGuideEquFrame}");
                             WriteProfile(profileProperties);
 
                             if (profileProperties.SyncTimeOnConnect)
                             {
-                                LogMessage("Connected set", "Sync Time on Connect - " + profileProperties.SyncTimeOnConnect.ToString());
-                                LogMessage("Connected set", "Pre Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
-                                LogMessage("Connected set", "Pre Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
+                                LogMessage("SetConnected", "Sync Time on Connect - " + profileProperties.SyncTimeOnConnect.ToString());
+                                LogMessage("SetConnected", "Pre Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
+                                LogMessage("SetConnected", "Pre Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
                                 UTCDate = DateTime.UtcNow;
-                                LogMessage("Connected set", "Post Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
-                                LogMessage("Connected set", "Post Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
+                                LogMessage("SetConnected", "Post Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
+                                LogMessage("SetConnected", "Post Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
                             }
 
-                            LogMessage("Connected", "Establishing Tracking Rate - " + profileProperties.TrackingRateOnConnect.ToString());
+
+
+                            LogMessage("SetConnected", $"Establishing Tracking Rate - {profileProperties.TrackingRateOnConnect.ToString()}");
                             switch (profileProperties.TrackingRateOnConnect)
                             {
 
@@ -526,51 +822,118 @@ namespace ASCOM.TTS160.Telescope
                                     TrackingRate = DriveRates.driveSolar;
                                     break;
                                 default:
-                                    throw new ASCOM.InvalidValueException("Unexpected TrackingRateOnConnect Value: " + profileProperties.TrackingRateOnConnect.ToString());
+                                    throw new ASCOM.InvalidValueException($"Unexpected TrackingRateOnConnect Value: {profileProperties.TrackingRateOnConnect.ToString()}");
 
                             }
 
                             MiscResources.IsTargetDecSet = false; //'Clearing' any previous target info
                             MiscResources.IsTargetRASet = false;
                             MiscResources.IsTargetSet = false;
+
+                            if (DEV_FIRMWARE)
+                            {
+
+                                if (profileProperties.AlignOnSyncEnabled)
+                                {
+                                    LogMessage("SetConnected", $"Enabling Align on Sync mode with {profileProperties.AlignOnSyncPoints} alignment points");
+                                    int alignpoints = profileProperties.AlignOnSyncPoints;
+                                    string cmd = $":**{profileProperties.AlignOnSyncPoints}#";
+                                    string resp = Commander(cmd, true, 2);
+                                    int respint = int.Parse(resp.TrimEnd('#'));
+                                    LogMessage("SetConnected", $"Received number of alignment points: {respint}");
+                                    if (!(respint == alignpoints))
+                                    {
+                                        string msg = "Unexpected response from handpad when setting Align on Sync mode, verify Align On Sync is enabled.";
+                                        LogMessage("SetConnected", msg);
+                                        throw new DriverException(msg);
+                                    }
+                                    else
+                                    {
+                                        MiscResources.AlignOnSyncEnabled = true;
+                                        MiscResources.AlignOnSyncPoints = alignpoints;
+                                        LogMessage("SetConnected", "Align On Sync mode is active.");
+                                    }
+                                }
+
+                            }
+
                         }
                         catch (Exception ex)
                         {
-                            LogMessage("Connected set", $"Error during initial configuration: {ex.Message}");
+                            LogMessage("SetConnected", $"Error during initial configuration: {ex.Message}");
+                            if (SharedResources.Connected)
+                            {
+                                LogMessage("SetConnected", $"Hardware remains connected due to legacy connection usage.  Connection Count: {SharedResources.Connections}");
+                            }
                         }
                     }
-                    else
+                    else // Other device instances are connected so the hardware is already connected
                     {
-                        LogMessage("Connected set", "Existing connection found, incrementing count...");
+                        // Since the hardware is already connected no action is required
+                        LogMessage("SetConnected", $"Hardware already connected, incrementing connection count.");
                         SharedResources.Connected = true;
                     }
+
+                    // The hardware either "already was" or "is now" connected, so add the driver unique ID to the connected list
+                    uniqueIds.Add(uniqueId);
+                    LogMessage("SetConnected", $"Unique id {uniqueId} added to the connection list.");
                 }
-                else
+            }
+            else // We are disconnecting
+            {
+                // Check whether this driver instance has already disconnected
+                if (!uniqueIds.Contains(uniqueId)) // Instance not connected so ignore request
                 {
-                    LogMessage("Connected set", $"Disconnecting from port {profileProperties.ComPort}");
-
-                    try
-                    {
-                        profileProperties.SiteLatitude = SiteLatitudeInit;
-                        profileProperties.SiteLongitude = SiteLongitudeInit;
-                        WriteProfile(profileProperties);
-
-                        SharedResources.Connected = false;
-                        if (!SharedResources.Connected) //Check to see if any 
-                        {
-                            connectedState = false;
-                            LogMessage("Connected set", "All drivers disconnected, disconnecting from hardware.");
-                        }
-
-                    }
-                    catch (Exception ex)
-                    {
-
-                        throw new ASCOM.DriverException($"Serial port disconnect error: {ex}");
-
-                    }
-
+                    // Ignore the request, the unique ID is not in the list
+                    LogMessage("SetConnected", $"Ignoring request to disconnect because the device is already disconnected.");
                 }
+                else // Instance currently connected so disconnect it
+                {
+                    // Remove the driver unique ID to the connected list
+                    uniqueIds.Remove(uniqueId);
+                    LogMessage("SetConnected", $"Unique id {uniqueId} removed from the connection list.");
+                    profileProperties.SiteLatitude = SiteLatitudeInit;
+                    profileProperties.SiteLongitude = SiteLongitudeInit;
+                    WriteProfile(profileProperties);
+
+                    SharedResources.Connected = false;
+                    if (!SharedResources.Connected) //Check to see if any connections remain
+                    {
+                        connectedState = false;
+                        LogMessage("SeConnected", "All drivers disconnected, disconnecting from hardware.");
+                    }
+                    // Check whether there are now any connected driver instances 
+                    if (uniqueIds.Count == 0) // There are no connected driver instances so disconnect from the hardware
+                    {
+                        LogMessage("SetConnected", $"All driver IDs removed");
+                    }
+                    else // Other device instances are connected so do not disconnect the hardware
+                    {
+                        // No action is required
+                        LogMessage("SetConnected", $"Hardware already connected.");
+                    }
+                }
+            }
+
+            // Log the current connected state
+            LogMessage("SetConnected", $"Currently connected driver ids:");
+            foreach (Guid id in uniqueIds)
+            {
+                LogMessage("SetConnected", $" ID {id} is connected");
+            }
+        }
+
+        /// <summary>
+        /// Set True to connect to the device hardware. Set False to disconnect from the device hardware.
+        /// You can also read the property to check whether it is connected. This reports the current hardware state.
+        /// </summary>
+        /// <value><c>true</c> if connected to the hardware; otherwise, <c>false</c>.</value>
+        public static bool Connected
+        {
+            get
+            {
+                LogMessage("Connected Get", $"{IsConnected}");
+                return IsConnected;
             }
         }
 
@@ -583,8 +946,8 @@ namespace ASCOM.TTS160.Telescope
             // TODO customise this device description
             get
             {
-                LogMessage("Description get", driverDescription);
-                return driverDescription;
+                LogMessage("Description get", $"{DriverDescription} v.{driverVersion}");
+                return $"{DriverDescription} v.{driverVersion}";
             }
         }
 
@@ -597,7 +960,7 @@ namespace ASCOM.TTS160.Telescope
             {
                 Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
                 // TODO customise this driver description
-                string driverInfo = "Driver for TTS-160. Version: " + String.Format(CultureInfo.InvariantCulture, "{0}.{1}", version.Major, version.Minor);
+                string driverInfo = $"Driver for TTS-160 v.{driverVersion}";
                 tl.LogMessage("DriverInfo get", driverInfo);
                 return driverInfo;
             }
@@ -611,9 +974,9 @@ namespace ASCOM.TTS160.Telescope
             get
             {
                 Version version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-                string driverVersion = String.Format(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}");
-                LogMessage("DriverVersion get", driverVersion);
-                return driverVersion;
+                string driverVersionnot = String.Format(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}");
+                LogMessage("DriverVersion get", driverVersionnot);
+                return driverVersionnot;
             }
         }
 
@@ -622,11 +985,11 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         public static short InterfaceVersion
         {
-            //Interface version 3...soon to be 4?
+            //Interface version 4
             get
             {
-                LogMessage("InterfaceVersion Get", "3");
-                return Convert.ToInt16("3");
+                LogMessage("InterfaceVersion Get", "4");
+                return Convert.ToInt16("4");
             }
         }
 
@@ -663,7 +1026,6 @@ namespace ASCOM.TTS160.Telescope
                 CheckConnected("AbortSlew");
                 Commander(":Q#", true, 0);
                 Slewing = false;
-                MiscResources.IsSlewingAsync = false;
                 MiscResources.IsSlewingToTarget = false;
                 MiscResources.SlewSettleStart = DateTime.MinValue;
                 MiscResources.EWMoveAxisSettleStart = DateTime.MinValue;
@@ -672,7 +1034,7 @@ namespace ASCOM.TTS160.Telescope
                 MiscResources.IsPulseGuiding = false;
                 MiscResources.MovingPrimary = false;
                 MiscResources.MovingSecondary = false;
-                Tracking = MiscResources.TrackSetFollower;
+                //Tracking = MiscResources.TrackSetFollower;
                 MiscResources.EWMoveAxisStopFlag = false;
                 MiscResources.NSMoveAxisStopFlag = false;
 
@@ -695,16 +1057,17 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
                     CheckConnected("AlignmentMode");
-                    String ret = Commander(":GW#", true, 2);
-                    switch (ret[0])
-                    {
-                        case 'A': return DeviceInterface.AlignmentModes.algAltAz;
-                        case 'P': return DeviceInterface.AlignmentModes.algPolar;  //This should be the only response from TTS-160
-                        case 'G': return DeviceInterface.AlignmentModes.algGermanPolar;
-                        default: throw new DriverException("Unknown AlignmentMode Reported");
+                    //String ret = Commander(":GW#", true, 2);
+                    //switch (ret[0])
+                    //{
+                        //case 'A': return DeviceInterface.AlignmentModes.algAltAz;
+                        //case 'P': return DeviceInterface.AlignmentModes.algPolar;  //This should be the only response from TTS-160
+                        //case 'G': return DeviceInterface.AlignmentModes.algGermanPolar;
+                        //default: throw new DriverException("Unknown AlignmentMode Reported");
+                        
+                    //}
+                    return DeviceInterface.AlignmentModes.algAltAz;
                     }
-
-                }
                 catch (Exception ex)
                 {
                     LogMessage("AlignmentMode Get", $"Error: {ex.Message}");
@@ -725,13 +1088,26 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("Altitude Get");
                     LogMessage("Altitude get", "Getting Altitude");
 
-                    var result = Commander(":GA#", true, 2);
+                    double alt = 0.0;
+                    if (DEV_FIRMWARE)
+                    {
+                        LogMessage("Altitude get", "Advanced Method: Max Precision");
+                        var result = Commander(":*GA#", true, 2).TrimEnd('#');
+                        LogMessage("Altitude get", $"Retrieved value: {result} radians");
+                        alt = double.Parse(result, CultureInfo.InvariantCulture) * (180 / Math.PI); ;//convert rad to deg
+
+                    }
+                    else
+                    {
+                        var result = Commander(":GA#", true, 2);
+                        alt = utilities.DMSToDegrees(result);
+                    }
+
                     //:GA# Get telescope altitude
                     //Returns: DDD*MM# or DDD*MM'SS#
                     //The current telescope Altitude depending on the selected precision.
 
-                    double alt = utilities.DMSToDegrees(result);
-                    LogMessage("Altitude Get", $"{alt}");
+                    LogMessage("Altitude get", $"{alt}");
                     return alt;
                 }
                 catch (Exception ex)
@@ -774,10 +1150,9 @@ namespace ASCOM.TTS160.Telescope
         internal static bool AtHome
         {
             get
-            {
-                //TTS-160 does not support Homing at this time.  Return False.
-                LogMessage("AtHome get", $"{false}");
-                return false;
+            {         
+                LogMessage("AtHome get", $"{MiscResources.isAtHome}");
+                return MiscResources.isAtHome;
             }
         }
 
@@ -810,6 +1185,11 @@ namespace ASCOM.TTS160.Telescope
                 CheckConnected("AxisRates");
                 LogMessage("AxisRates get", $"{Axis}");
                 var buf = new AxisRates(Axis);
+                if (DEV_FIRMWARE)
+                {
+                    LogMessage("AxisRates get", "Advanced Firmware Detected");
+                    LogMessage("AxisRates get", "AxisRates retrieved will be different.");
+                }
                 LogMessage("AxisRates get", $"Returning - {buf}; Count: {buf.Count}");
                 return buf;
             }
@@ -833,12 +1213,25 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("Azimuth get", "Getting Azimuth");
                     CheckConnected("Azimuth get");
 
-                    var result = Commander(":GZ#", true, 2);
+                    double az = 0.0;
+                    if (DEV_FIRMWARE)
+                    {
+                        LogMessage("Azimuth get", "Advanced Method: Max Precision");
+                        var result = Commander(":*GZ#", true, 2).TrimEnd('#');
+                        LogMessage("Azimuth get", $"Retrieved value: {result} radians");
+                        az = double.Parse(result, CultureInfo.InvariantCulture) * (180 / Math.PI); ;//convert rad to deg
+
+                    }
+                    else
+                    {
+                        var result = Commander(":GZ#", true, 2);
+                        az = utilities.DMSToDegrees(result);
+                    }
+
                     //:GZ# Get telescope azimuth
                     //Returns: DDD*MM#T or DDD*MM'SS# verify low precision returns with T at the end!
                     //The current telescope Azimuth depending on the selected precision.
 
-                    double az = utilities.DMSToDegrees(result);
                     LogMessage("Azimuth get", $"{az}");
                     return az;
 
@@ -862,9 +1255,9 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanFindHome");
 
-                    //TTS-160 does not have 'Home' functionality implemented at this time, return false
-                    LogMessage("CanFindHome get", $"{false}");
-                    return false;
+                    //Assume Home is 180/0
+                    LogMessage("CanFindHome get", $"{true}");
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1268,13 +1661,24 @@ namespace ASCOM.TTS160.Telescope
                     //tl.LogMessage("Declination Get", "Getting Declination");
                     CheckConnected("Declination Get");
 
-                    //var result = CommandString(":GD#", true);
-                    var result = Commander(":GD#", true, 2);
+                    double declination = 0.0;
+                    if (DEV_FIRMWARE)
+                    {
+                        LogMessage("Declination get", "Advanced Method: Max Precision");
+                        var result = Commander(":*GD#", true, 2).TrimEnd('#');
+                        LogMessage("Declination get", $"Retrieved value: {result} radians");
+                        declination = double.Parse(result, CultureInfo.InvariantCulture) * (180 / Math.PI); //convert rad to deg
+
+                    }
+                    else
+                    {
+                        var result = Commander(":GD#", true, 2);
+                        declination = utilities.DMSToDegrees(result);
+                    }
+
                     //:GD# Get telescope Declination
                     //Returns: DDD*MM#T or DDD*MM'SS#
-                    //The current telescope Declination depending on the selected precision.
-
-                    double declination = utilities.DMSToDegrees(result);
+                    //The current telescope Declination depending on the selected precision.    
 
                     LogMessage("Declination get", utilities.DegreesToDMS(declination, ":", ":", ""));
                     return declination;
@@ -1282,7 +1686,7 @@ namespace ASCOM.TTS160.Telescope
                 }
                 catch (Exception ex)
                 {
-                    LogMessage("Declination Get", $"Error: {ex.Message}");
+                    LogMessage("Declination get", $"Error: {ex.Message}");
                     throw;
                 }
 
@@ -1382,8 +1786,78 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void FindHome()
         {
-            LogMessage("FindHome", "Not implemented");
-            throw new MethodNotImplementedException("FindHome");
+            try
+            {
+                CheckConnected("FindHome");
+                CheckParked("FindHome");
+                CheckSlewing("FindHome");
+
+                LogMessage("FindHome", "Moving to Home");
+                if (AtHome)
+                {
+                    LogMessage("FindHome", "Mount is already at Home");
+                    return;
+                }
+
+                int haz = 180;
+                int halt = -1;
+                bool result = true;
+                while ( (halt <= 9) && result)
+                {
+                    halt++;
+                    T.SiteLatitude = SiteLatitude;
+                    T.SiteLongitude = SiteLongitude;
+                    T.SiteElevation = SiteElevation;
+                    T.SiteTemperature = 20;
+                    T.Refraction = false;
+                    T.SetAzimuthElevation(haz, halt);
+                    TargetDeclination = T.DECTopocentric;
+                    TargetRightAscension = T.RATopocentric;
+                    result = bool.Parse(Commander(":MS#", true, 1));
+                }
+                if (result) { throw new ASCOM.InvalidOperationException("Home position is below the horizon, check mount alignment"); }
+
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        while (Slewing)
+                        {
+                            Thread.Sleep(500); //wait 500 msec and see if still slewing
+                        }
+                        double alt = Altitude;
+                        double az = Azimuth;
+
+                        if (((Math.Abs(Math.Floor(alt+halt))) < 2) && (Math.Abs(180-Math.Floor(az)) < 5))
+                        {
+                            MiscResources.isAtHome = true;
+                            LogMessage("FindHome", $"Arrived at home. Alt: {alt}, Az: {az}");
+                        }
+                        else
+                        {
+                            string msg = $"Driver did not end at home, please check mount.  Alt: {alt}, Az: {az}";
+                            LogMessage("FindHome", msg);
+                            throw new DriverException("FindHome Error:" + msg);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage("FindHome", $"Exception: - {ex.Message}\r\n{ex}");
+                        throw;
+                    }
+
+                });
+
+            }
+            catch (Exception ex)
+            {
+                LogMessage("FindHome", $"Error: {ex.Message}");
+                throw;
+            }
+
+
+
+
         }
 
         /// <summary>
@@ -1513,39 +1987,46 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("IsPulseGuiding");
 
-                    if (MiscResources.EWPulseGuideFlag)
+                    if (profileProperties.PulseGuideDurationCompliant)
                     {
-                        if (DateTime.Now > MiscResources.EWPulseGuideFinish)
+                        if (MiscResources.EWPulseGuideFlag)
                         {
-                            MiscResources.EWPulseGuideFlag = false;
+                            if (DateTime.Now > MiscResources.EWPulseGuideFinish)
+                            {
+                                MiscResources.EWPulseGuideFlag = false;
+                            }
+                            else
+                            {
+                                LogMessage("IsPulseGuiding get", "Still Guiding EW");
+                            }
                         }
-                        else
-                        {
-                            LogMessage("IsPulseGuiding get", "Still Guiding EW");
-                        }
-                    }
 
-                    if (MiscResources.NSPulseGuideFlag)
+                        if (MiscResources.NSPulseGuideFlag)
+                        {
+                            if (DateTime.Now > MiscResources.NSPulseGuideFinish)
+                            {
+                                MiscResources.NSPulseGuideFlag = false;
+                            }
+                            else
+                            {
+                                LogMessage("IsPulseGuiding get", "Still Guiding NS");
+                            }
+
+
+                        }
+
+                        if (!MiscResources.EWPulseGuideFlag && !MiscResources.NSPulseGuideFlag)
+                        {
+                            MiscResources.IsPulseGuiding = false;
+                        }
+
+                        LogMessage("IsPulseGuiding get", $"{MiscResources.IsPulseGuiding}");
+                        return MiscResources.IsPulseGuiding;
+                    }
+                    else
                     {
-                        if (DateTime.Now > MiscResources.NSPulseGuideFinish)
-                        {
-                            MiscResources.NSPulseGuideFlag = false;
-                        }
-                        else
-                        {
-                            LogMessage("IsPulseGuiding get", "Still Guiding NS");
-                        }
-
-
+                        return MiscResources.IsPulseGuiding;
                     }
-
-                    if (!MiscResources.EWPulseGuideFlag && !MiscResources.NSPulseGuideFlag)
-                    {
-                        MiscResources.IsPulseGuiding = false;
-                    }
-
-                    LogMessage("IsPulseGuiding get", $"{MiscResources.IsPulseGuiding}");
-                    return MiscResources.IsPulseGuiding;
                 }
                 catch (Exception ex)
                 {
@@ -1562,13 +2043,72 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope in one axis at the given rate.
+        /// Convert float to two ints.  Taken from: Taken from: https://stackoverflow.com/questions/5124743/algorithm-for-simplifying-decimal-to-fractions/32903747#32903747
+        /// </summary>
+        /// <param name="Value">The double variable to be analyzed</param>
+        /// <param name="accuracy">Indicate how accurate the answer must be (between 0 and 1) </param>
+        internal static Fraction RealToFraction(double value, double accuracy)
+        {
+            if (accuracy <= 0.0 || accuracy >= 1.0)
+            {
+                throw new ArgumentOutOfRangeException("accuracy", "Must be > 0 and < 1.");
+            }
+
+            int sign = Math.Sign(value);
+
+            if (sign == -1)
+            {
+                value = Math.Abs(value);
+            }
+
+            // Accuracy is the maximum relative error; convert to absolute maxError
+            double maxError = sign == 0 ? accuracy : value * accuracy;
+
+            int n = (int)Math.Floor(value);
+            value -= n;
+
+            if (value < maxError)
+            {
+                return new Fraction(sign * n, 1);
+            }
+
+            if (1 - maxError < value)
+            {
+                return new Fraction(sign * (n + 1), 1);
+            }
+
+            double z = value;
+            int previousDenominator = 0;
+            int denominator = 1;
+            int numerator;
+
+            do
+            {
+                z = 1.0 / (z - (int)z);
+                int temp = denominator;
+                denominator = denominator * (int)z + previousDenominator;
+                previousDenominator = temp;
+                numerator = Convert.ToInt32(value * denominator);
+            }
+            while (Math.Abs(value - (double)numerator / denominator) > maxError && z != (int)z);
+
+            return new Fraction((n * denominator + numerator) * sign, denominator);
+        }
+
+        /// <summary>
+        /// Move the telescope in one axis at the given rate.  
         /// </summary>
         /// <param name="Axis">The physical axis about which movement is desired</param>
         /// <param name="Rate">The rate of motion (deg/sec) about the specified axis</param>
-        // Implementation of this function based on code from Generic Meade Driver
         internal static void MoveAxis(TelescopeAxes Axis, double Rate)
         {
+
+            double TPDH = 13033502.0 / 360.0; //ticks per degree on H axis
+            double TPDE = 13146621.0 / 360.0; //ticks per degree on E axis
+            double TicksPerPulse = 7.0; //ticks per pulse (high speed)
+            double ClockFreq = 57600; // cycle/sec
+            double TTP = 1.0;
+            
             try
             {
 
@@ -1577,266 +2117,394 @@ namespace ASCOM.TTS160.Telescope
                 CheckParked("MoveAxis");
                 SlewingInternalUpdate();
 
-                if (!MiscResources.MovingPrimary && !MiscResources.MovingSecondary && Slewing)
-                {
-                    throw new ASCOM.InvalidOperationException("Error: Non-MoveAxis motion detected, MoveAxis unavailable");
-                }
-
-                var absRate = Math.Abs(Rate);
-                LogMessage("MoveAxis", $"Setting rate to {absRate} deg/sec");
-
-                switch (absRate)
+                if ( DEV_FIRMWARE )
                 {
 
-                    case (0):
-                        //do nothing, it's ok this time as we're halting the slew.
-                        break;
+                    if (!MiscResources.MovingPrimary && !MiscResources.MovingSecondary && Slewing && (Rate != 0))
+                    {
+                        throw new ASCOM.InvalidOperationException("Error: Non-MoveAxis motion detected, MoveAxis unavailable");
+                    }
 
-                    case (0.000277777777777778):
-                        Commander(":RG#", true, 0);
-                        break;
+                    LogMessage("MoveAxis", "Advanced Firmware Detected");
+                    LogMessage("MoveAxis", "Using Extended MoveAxis Method");
+                    LogMessage("MoveAxis", "Converting Rate to Int");
+                    if (Rate < -3.5)
+                    {
+                        throw new InvalidValueException("Rate must be equal to or greater than -3.5 deg/sec");
+                    }
+                    else if (Rate > 3.5 )
+                    {
+                        throw new InvalidValueException("Rate must be equal to or less than 3.5 deg/sec");
+                    }
+                    
+                    double absRate = Math.Abs(Rate);
+                    int intabsRate =  Convert.ToInt32(absRate);
+                    
+                    //double speed = absRate; //deg/sec
+                    //speed = 1 / speed;  //deg/sec -> sec/deg
+                    //double TTP = (speed - -0.0276390) / 0.0932401;
+                    
+                    
+                    switch( Axis )
+                    {
+                        case TelescopeAxes.axisPrimary:
+                            TTP = (ClockFreq * TicksPerPulse) / (absRate * TPDH);
+                            break;
+                        case TelescopeAxes.axisSecondary:
+                            TTP = (ClockFreq * TicksPerPulse) / (absRate * TPDE);
+                            break;
+                    }
+                    
 
-                    case (1.4):
-                        Commander(":RM#", true, 0);
-                        break;
+                    LogMessage("MoveAxis", $"Double: {absRate}; Int: {intabsRate}; TTP: {TTP}");
+                    LogMessage("MoveAxis", $"Converting inverse TTP {1/TTP} to integer ratio.");
+                    Fraction rateratio = RealToFraction(1 / TTP, .0001);
+                    int num = rateratio.N;
+                    int den = rateratio.D;
 
-                    case (2.2):
-                        Commander(":RC#", true, 0);
-                        break;
-
-                    case (3):
-                        Commander(":RS#", true, 0);
-                        break;
-
-                    default:
-                        //invalid rate exception
-                        throw new InvalidValueException($"Rate {absRate} deg/sec not supported");
-                }
-
-                int LOOP_WAIT_TIME = 100; //ms
-                int iter = 0;
-                int i = 0;
-                switch (Axis)
-                {
-                    case TelescopeAxes.axisPrimary:
-                        if (MiscResources.EWMoveAxisStopFlag)
+                        if (den < 4999)  //Largest number we can scale up to be closer to 9999
                         {
-                            iter = 100;
-                            while (MiscResources.EWMoveAxisStopFlag)
-                            {
-                                Thread.Sleep(MOVEAXIS_WAIT_TIME / iter); //check on flag status for MOVE_AXIS_WAIT_TIME
-                            }
-                            //If the flag is still true, something is wrong
+                            int mult = Convert.ToInt32(Math.Floor(Convert.ToDouble(4999 / den)));  //scale the denominator up as close as possible to 9999
+                            den *= mult;
+                            num *= mult;
+                        }
+                        else if (den > 9999)
+                        {
+                            int mult = Convert.ToInt32(Math.Ceiling(Convert.ToDouble( den/9999)));
+                            den = Convert.ToInt32(Math.Round(Convert.ToDouble(den) / Convert.ToDouble(mult)));
+                            num = Convert.ToInt32(Math.Round(Convert.ToDouble(num)/Convert.ToDouble(rateratio.D) * Convert.ToDouble(den)));
+                        }
 
+                    if (num == 0)  //If we are stopping, just set denominator to 9999
+                        den = 9999;
+
+                    LogMessage("MoveAxis", $"Num: {num}; Den: {den}; Result: {Convert.ToDouble(num) / Convert.ToDouble(den)}");
+                    string nstr = Math.Abs(num).ToString("D4");
+                    string dstr = Math.Abs(den).ToString("D4");
+                    switch (Axis)
+                    {
+                        case TelescopeAxes.axisPrimary:
+                            switch (Rate.Compare(0))
+                            {
+                                case ComparisonResult.Equals:
+                                    LogMessage("Extended MoveAxis", "Stopping Primary Axis");
+                                    Commander(":Qe#", true, 0);
+                                    break;
+                                case ComparisonResult.Greater:
+                                    var movecmde = ":*Me" + nstr + dstr + "#";
+                                    LogMessage("Extended MoveAxis", "Sending Command: " + movecmde);
+                                    Commander(movecmde, true, 0);
+                                    MiscResources.IsSlewing = true;
+                                    MiscResources.MovingPrimary = true;
+                                    MiscResources.isAtHome = false;
+                                    break;
+                                case ComparisonResult.Lower:
+                                    var movecmdw = ":*Mw" + nstr + dstr + "#";
+                                    LogMessage("Extended MoveAxis", "Sending Command: " + movecmdw);
+                                    Commander(movecmdw, true, 0);
+                                    MiscResources.IsSlewing = true;
+                                    MiscResources.MovingPrimary = true;
+                                    MiscResources.isAtHome = false;
+                                    break;
+                            }
+                            break;
+                        case TelescopeAxes.axisSecondary:
+                            switch (Rate.Compare(0))
+                            {
+                                case ComparisonResult.Equals:
+                                    LogMessage("Extended MoveAxis", "Stopping Secondary Axis");
+                                    Commander(":Qn#", true, 0);
+                                    break;
+                                case ComparisonResult.Greater:
+                                    var movecmdn = ":*Mn" + nstr + dstr + "#";
+                                    LogMessage("Extended MoveAxis", "Sending Command: " + movecmdn);
+                                    Commander(movecmdn, true, 0);
+                                    MiscResources.IsSlewing = true;
+                                    MiscResources.MovingSecondary = true;
+                                    MiscResources.isAtHome = false;
+                                    break;
+                                case ComparisonResult.Lower:
+                                    var movecmds = ":*Ms" + nstr + dstr + "#";
+                                    LogMessage("Extended MoveAxis", "Sending Command: " + movecmds);
+                                    Commander(movecmds, true, 0);
+                                    MiscResources.IsSlewing = true;
+                                    MiscResources.MovingSecondary = true;
+                                    MiscResources.isAtHome = false;
+                                    break;
+                            }
+                            break;
+                        default:
+                            throw new InvalidValueException($"Invalid axis selected: {Axis}.");
+                    }
+                }
+                else
+                {
+
+                    if (!MiscResources.MovingPrimary && !MiscResources.MovingSecondary && Slewing)
+                    {
+                        throw new ASCOM.InvalidOperationException("Error: Non-MoveAxis motion detected, MoveAxis unavailable");
+                    }
+
+                    var absRate = Math.Abs(Rate);
+                    LogMessage("MoveAxis", $"Setting rate to {absRate} deg/sec");
+
+                    switch (absRate)
+                    {
+
+                        case (0):
+                            //do nothing, it's ok this time as we're halting the slew.
+                            break;
+
+                        case (0.000277777777777778):
+                            Commander(":RG#", true, 0);
+                            break;
+
+                        case (1.4):
+                            Commander(":RM#", true, 0);
+                            break;
+
+                        case (2.2):
+                            Commander(":RC#", true, 0);
+                            break;
+
+                        case (3):
+                            Commander(":RS#", true, 0);
+                            break;
+
+                        default:
+                            //invalid rate exception
+                            throw new InvalidValueException($"Rate {absRate} deg/sec not supported");
+                    }
+
+                    int LOOP_WAIT_TIME = 100; //ms
+                    int iter = 0;
+                    int i = 0;
+                    switch (Axis)
+                    {
+                        case TelescopeAxes.axisPrimary:
                             if (MiscResources.EWMoveAxisStopFlag)
                             {
-                                LogMessage("MoveAxis", $"{TelescopeAxes.axisPrimary} is trying to stop and is taking too long.  Unknown mount hardware state.");
-                                throw new DriverException($"{TelescopeAxes.axisPrimary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                iter = 100;
+                                while (MiscResources.EWMoveAxisStopFlag)
+                                {
+                                    Thread.Sleep(MOVEAXIS_WAIT_TIME / iter); //check on flag status for MOVE_AXIS_WAIT_TIME
+                                }
+                                //If the flag is still true, something is wrong
+
+                                if (MiscResources.EWMoveAxisStopFlag)
+                                {
+                                    LogMessage("MoveAxis", $"{TelescopeAxes.axisPrimary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                    throw new DriverException($"{TelescopeAxes.axisPrimary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                }
                             }
-                        }
-                        switch (Rate.Compare(0))
-                        {
-                            case ComparisonResult.Equals:
-                                LogMessage("MoveAxis", "Primary Axis Stop Movement");
-                                Commander(":Qe#", true, 0);
-                                //:Qe# Halt eastward Slews
-                                //Returns: Nothing
-                                Commander(":Qw#", true, 0);
-
-                                //:Qw# Halt westward Slews
-                                //Returns: Nothing                              
-
-                                //Async implementation: Set flag to indicate stop command is active, set current time for settle calc
-
-                                MiscResources.EWMoveAxisStopFlag = true;
-                                MiscResources.EWMoveAxisSettleStart = DateTime.Now;
-
-                                /*
-                                iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                i = 0;
-                                while (i <= iter)
-                                {
-                                    if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                    Thread.Sleep(LOOP_WAIT_TIME);
-                                    i++;
-                                }
-                                
-                                MiscResources.MovingPrimary = false;
-                                //Per ASCOM standard, SHOULD be incorporating SlewSettleTime --> but if mount sets tracking, no need to wait!
-                                if (!MiscResources.MovingSecondary) //If both primary and secondary are now stopped, restore tracking to what it was.
-                                {
-                                    Slewing = false;
-                                    Tracking = MiscResources.TrackSetFollower;
-                                }
-                                LogMessage("MoveAxis", "Primary Axis Stop Movement");
-                                */
-
-                                break;
-                            case ComparisonResult.Greater:
-                                tl.LogMessage("MoveAxis", "Move East");
-                                if (MiscResources.MovingPrimary)
-                                {
-                                    Commander(":Qe#", true, 0);// before mount will change axis speed/direction, expects a stop command
-                                    Commander(":Qw#", true, 0);
-
-                                    //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
-                                    tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
-                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                    i = 0;
-                                    while (i <= iter)
-                                    {
-                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                        Thread.Sleep(LOOP_WAIT_TIME);
-                                        i++;
-                                    }
-
-                                }
-                                Commander(":Me#", true, 0);
-                                //:Me# Move Telescope East at current slew rate
-                                //Returns: Nothing
-                                MiscResources.MovingPrimary = true;
-                                Slewing = true;
-                                break;
-                            case ComparisonResult.Lower:
-                                tl.LogMessage("MoveAxis", "Move West");
-                                if (MiscResources.MovingPrimary)
-                                {
-                                    Commander(":Qe#", true, 0);// before mount will change axis speed/direction, expects a stop command
-                                    Commander(":Qw#", true, 0);
-
-                                    //and motor must actually stop (~2 secs or Tracking restored)
-                                    tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
-                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                    i = 0;
-                                    while (i <= iter)
-                                    {
-                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                        Thread.Sleep(LOOP_WAIT_TIME);
-                                        i++;
-                                    }
-
-                                }
-                                Commander(":Mw#", true, 0);
-                                //:Mw# Move Telescope West at current slew rate
-                                //Returns: Nothing
-                                MiscResources.MovingPrimary = true;
-                                Slewing = true;
-                                break;
-                        }
-                        break;
-
-                    case TelescopeAxes.axisSecondary:
-
-                        if (MiscResources.NSMoveAxisStopFlag)
-                        {
-                            iter = 100;
-                            while (MiscResources.NSMoveAxisStopFlag)
+                            switch (Rate.Compare(0))
                             {
-                                Thread.Sleep(MOVEAXIS_WAIT_TIME / iter); //check on flag status for MOVE_AXIS_WAIT_TIME
+                                case ComparisonResult.Equals:
+                                    LogMessage("MoveAxis", "Primary Axis Stop Movement");
+                                    Commander(":Qe#", true, 0);
+                                    //:Qe# Halt eastward Slews
+                                    //Returns: Nothing
+                                    Commander(":Qw#", true, 0);
+
+                                    //:Qw# Halt westward Slews
+                                    //Returns: Nothing                              
+
+                                    //Async implementation: Set flag to indicate stop command is active, set current time for settle calc
+
+                                    MiscResources.EWMoveAxisStopFlag = true;
+                                    MiscResources.EWMoveAxisSettleStart = DateTime.Now;
+
+                                    /*
+                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                    i = 0;
+                                    while (i <= iter)
+                                    {
+                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                        Thread.Sleep(LOOP_WAIT_TIME);
+                                        i++;
+                                    }
+
+                                    MiscResources.MovingPrimary = false;
+                                    //Per ASCOM standard, SHOULD be incorporating SlewSettleTime --> but if mount sets tracking, no need to wait!
+                                    if (!MiscResources.MovingSecondary) //If both primary and secondary are now stopped, restore tracking to what it was.
+                                    {
+                                        Slewing = false;
+                                        Tracking = MiscResources.TrackSetFollower;
+                                    }
+                                    LogMessage("MoveAxis", "Primary Axis Stop Movement");
+                                    */
+
+                                    break;
+                                case ComparisonResult.Greater:
+                                    tl.LogMessage("MoveAxis", "Move East");
+                                    if (MiscResources.MovingPrimary)
+                                    {
+                                        Commander(":Qe#", true, 0);// before mount will change axis speed/direction, expects a stop command
+                                        Commander(":Qw#", true, 0);
+
+                                        //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
+                                        tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
+                                        iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                        i = 0;
+                                        while (i <= iter)
+                                        {
+                                            if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                            Thread.Sleep(LOOP_WAIT_TIME);
+                                            i++;
+                                        }
+
+                                    }
+                                    Commander(":Me#", true, 0);
+                                    //:Me# Move Telescope East at current slew rate
+                                    //Returns: Nothing
+                                    MiscResources.MovingPrimary = true;
+                                    MiscResources.isAtHome = false;
+                                    Slewing = true;
+                                    break;
+                                case ComparisonResult.Lower:
+                                    tl.LogMessage("MoveAxis", "Move West");
+                                    if (MiscResources.MovingPrimary)
+                                    {
+                                        Commander(":Qe#", true, 0);// before mount will change axis speed/direction, expects a stop command
+                                        Commander(":Qw#", true, 0);
+
+                                        //and motor must actually stop (~2 secs or Tracking restored)
+                                        tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
+                                        iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                        i = 0;
+                                        while (i <= iter)
+                                        {
+                                            if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                            Thread.Sleep(LOOP_WAIT_TIME);
+                                            i++;
+                                        }
+
+                                    }
+                                    Commander(":Mw#", true, 0);
+                                    //:Mw# Move Telescope West at current slew rate
+                                    //Returns: Nothing
+                                    MiscResources.MovingPrimary = true;
+                                    MiscResources.isAtHome = false;
+                                    Slewing = true;
+                                    break;
                             }
-                            //If the flag is still true, something is wrong
+                            break;
+
+                        case TelescopeAxes.axisSecondary:
 
                             if (MiscResources.NSMoveAxisStopFlag)
                             {
-                                LogMessage("MoveAxis", $"{TelescopeAxes.axisSecondary} is trying to stop and is taking too long.  Unknown mount hardware state.");
-                                throw new DriverException($"{TelescopeAxes.axisSecondary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                iter = 100;
+                                while (MiscResources.NSMoveAxisStopFlag)
+                                {
+                                    Thread.Sleep(MOVEAXIS_WAIT_TIME / iter); //check on flag status for MOVE_AXIS_WAIT_TIME
+                                }
+                                //If the flag is still true, something is wrong
+
+                                if (MiscResources.NSMoveAxisStopFlag)
+                                {
+                                    LogMessage("MoveAxis", $"{TelescopeAxes.axisSecondary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                    throw new DriverException($"{TelescopeAxes.axisSecondary} is trying to stop and is taking too long.  Unknown mount hardware state.");
+                                }
                             }
-                        }
-                        switch (Rate.Compare(0))
-                        {
-                            case ComparisonResult.Equals:
-                                tl.LogMessage("MoveAxis", "Secondary Axis Stop Movement");
-                                Commander(":Qn#", true, 0);
-                                //:Qn# Halt northward Slews
-                                //Returns: Nothing
-                                Commander(":Qs#", true, 0);
-                                //:Qs# Halt southward Slews
-                                //Returns: Nothing
+                            switch (Rate.Compare(0))
+                            {
+                                case ComparisonResult.Equals:
+                                    tl.LogMessage("MoveAxis", "Secondary Axis Stop Movement");
+                                    Commander(":Qn#", true, 0);
+                                    //:Qn# Halt northward Slews
+                                    //Returns: Nothing
+                                    Commander(":Qs#", true, 0);
+                                    //:Qs# Halt southward Slews
+                                    //Returns: Nothing
 
-                                //Async implementation: Set flag to indicate stop command is active, set current time for settle calc
+                                    //Async implementation: Set flag to indicate stop command is active, set current time for settle calc
 
-                                MiscResources.NSMoveAxisStopFlag = true;
-                                MiscResources.NSMoveAxisSettleStart = DateTime.Now;
+                                    MiscResources.NSMoveAxisStopFlag = true;
+                                    MiscResources.NSMoveAxisSettleStart = DateTime.Now;
 
-                                /*
-                                //Redo this implementation for async operation.  Add an initial check to verify moving axis state and whether it should be timed out or not
-                                iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                i = 0;
-                                while (i <= iter)
-                                {
-                                    if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                    Thread.Sleep(LOOP_WAIT_TIME);
-                                    i++;
-                                }
-                                Slewing = false;  //Should slewing be made false here, or do we need to wait until both primary and secondary are not moving?
-                                MiscResources.MovingSecondary = false;
-                                */
-                                /*
-                                tl.LogMessage("MoveAxis", "Secondary Axis Stop Movement");
-                                if (!MiscResources.MovingPrimary) //If both primary and secondary are now stopped, restore tracking to what it was.
-                                {
+                                    /*
+                                    //Redo this implementation for async operation.  Add an initial check to verify moving axis state and whether it should be timed out or not
+                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                    i = 0;
+                                    while (i <= iter)
+                                    {
+                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                        Thread.Sleep(LOOP_WAIT_TIME);
+                                        i++;
+                                    }
                                     Slewing = false;  //Should slewing be made false here, or do we need to wait until both primary and secondary are not moving?
-                                    Tracking = MiscResources.TrackSetFollower;
-                                   
-                                }
-                                */
-                                break;
-                            case ComparisonResult.Greater:
-                                tl.LogMessage("MoveAxis", "Move North");
-                                if (MiscResources.MovingSecondary)
-                                {
-                                    Commander(":Qn#", true, 0);// before mount will change axis speed/direction, expects a stop command
-                                    Commander(":Qs#", true, 0);
-
-                                    //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
-                                    tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
-                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                    i = 0;
-                                    while (i <= iter)
+                                    MiscResources.MovingSecondary = false;
+                                    */
+                                    /*
+                                    tl.LogMessage("MoveAxis", "Secondary Axis Stop Movement");
+                                    if (!MiscResources.MovingPrimary) //If both primary and secondary are now stopped, restore tracking to what it was.
                                     {
-                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                        Thread.Sleep(LOOP_WAIT_TIME);
-                                        i++;
+                                        Slewing = false;  //Should slewing be made false here, or do we need to wait until both primary and secondary are not moving?
+                                        Tracking = MiscResources.TrackSetFollower;
+
                                     }
-
-                                }
-                                Commander(":Mn#", true, 0);
-                                //:Mn# Move Telescope North at current slew rate
-                                //Returns: Nothing
-                                MiscResources.MovingSecondary = true;
-                                Slewing = true;
-                                break;
-                            case ComparisonResult.Lower:
-                                tl.LogMessage("MoveAxis", "Move South");
-                                if (MiscResources.MovingSecondary)
-                                {
-                                    Commander(":Qn#", true, 0);// before mount will change axis speed/direction, expects a stop command
-                                    Commander(":Qs#", true, 0);
-
-                                    //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
-                                    tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
-                                    iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
-                                    i = 0;
-                                    while (i <= iter)
+                                    */
+                                    break;
+                                case ComparisonResult.Greater:
+                                    tl.LogMessage("MoveAxis", "Move North");
+                                    if (MiscResources.MovingSecondary)
                                     {
-                                        if (Tracking) { break; }  //if tracking is restored, no need to wait!
-                                        Thread.Sleep(LOOP_WAIT_TIME);
-                                        i++;
+                                        Commander(":Qn#", true, 0);// before mount will change axis speed/direction, expects a stop command
+                                        Commander(":Qs#", true, 0);
+
+                                        //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
+                                        tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
+                                        iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                        i = 0;
+                                        while (i <= iter)
+                                        {
+                                            if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                            Thread.Sleep(LOOP_WAIT_TIME);
+                                            i++;
+                                        }
+
                                     }
+                                    Commander(":Mn#", true, 0);
+                                    //:Mn# Move Telescope North at current slew rate
+                                    //Returns: Nothing
+                                    MiscResources.MovingSecondary = true;
+                                    MiscResources.isAtHome = false;
+                                    Slewing = true;
+                                    break;
+                                case ComparisonResult.Lower:
+                                    tl.LogMessage("MoveAxis", "Move South");
+                                    if (MiscResources.MovingSecondary)
+                                    {
+                                        Commander(":Qn#", true, 0);// before mount will change axis speed/direction, expects a stop command
+                                        Commander(":Qs#", true, 0);
 
-                                }
-                                Commander(":Ms#", true, 0);
-                                //:Ms# Move Telescope South at current slew rate
-                                //Returns: Nothing
-                                MiscResources.MovingSecondary = true;
-                                Slewing = true;
-                                break;
-                        }
+                                        //and motor must actually stop (~2 secs or Tracking restored)  Maintain synchronous implementation here!
+                                        tl.LogMessage("MoveAxis", "Movement finished, waiting for " + MOVEAXIS_WAIT_TIME.ToString() + " ms or until tracking restarts");
+                                        iter = Convert.ToInt32(Convert.ToDouble(MOVEAXIS_WAIT_TIME) / Convert.ToDouble(LOOP_WAIT_TIME));
+                                        i = 0;
+                                        while (i <= iter)
+                                        {
+                                            if (Tracking) { break; }  //if tracking is restored, no need to wait!
+                                            Thread.Sleep(LOOP_WAIT_TIME);
+                                            i++;
+                                        }
 
-                        break;
-                    default:
-                        throw new InvalidValueException("Cannot move this axis.");
-                }
+                                    }
+                                    Commander(":Ms#", true, 0);
+                                    //:Ms# Move Telescope South at current slew rate
+                                    //Returns: Nothing
+                                    MiscResources.MovingSecondary = true;
+                                    MiscResources.isAtHome = false;
+                                    Slewing = true;
+                                    break;
+                            }
+
+                            break;
+                        default:
+                            throw new InvalidValueException("Cannot move this axis.");
+                    }
+                }              
             }
             catch (Exception ex)
             {
@@ -2000,43 +2668,6 @@ namespace ASCOM.TTS160.Telescope
                     GuideDirections Dir1 = GuideDirections.guideNorth;
                     GuideDirections Dir2 = GuideDirections.guideEast;
 
-                    LogMessage("RaDecToAltAz", $"The following is data to evaluate the best method for converting the pulses:");
-                    double RA0 = T.RATopocentric * 15;
-                    double Dec0 = T.DECTopocentric;
-                    double RAf = RA0 + deltara;
-                    double Decf = Dec0 + deltadec;
-                    double AZ0 = T.AzimuthTopocentric;
-                    double Alt0 = T.ElevationTopocentric;
-                    T.SetTopocentric(RAf / 15, Decf);
-                    double AZfCalc = T.AzimuthTopocentric;
-                    double AltfCalc = T.ElevationTopocentric;
-                    double deltaazcalc = AZfCalc - AZ0;
-                    double deltaaltcalc = AltfCalc - Alt0;
-                    double deltaalttest = Math.Round(Convert.ToDouble(dur1), 4) / 1000.0 * guiderate;
-                    double deltaaztest = Math.Round(Convert.ToDouble(dur2), 4) / 1000.0 * guiderate;
-                    double Altftest = Alt0 + deltaalttest;
-                    double AZftest = AZ0 + deltaaztest;
-                    T.SetAzimuthElevation(AZftest, Altftest);
-                    double RAftest = T.RATopocentric * 15;
-                    double Decftest = T.DECTopocentric;
-                    double deltaratest = RAftest - RA0;
-                    double deltadectest = Decftest - Dec0;
-
-                    double delta = Math.Abs(deltadec + deltara);
-
-                    /*
-                    LogMessage("RaDecToAltAz:", $"Direction: {Direction}; delta: {utilities.DegreesToDMS(delta,":",":",":",4)}");
-                    LogMessage("RaDecToAltAz", $"RA0: {utilities.DegreesToHMS(RA0, ":", ":", ":", 4)}; RAf: {utilities.DegreesToHMS(RAf,":",":",":", 4)}; RAfTest: {utilities.DegreesToHMS(RAftest,":",":",":",4)}");
-                    LogMessage("RaDecToAltAz", $"Dec0: {utilities.DegreesToDMS(Dec0, ":", ":", ":", 4)}; Decf: {utilities.DegreesToDMS(Decf, ":", ":", ":", 4)}; DecfTest: {utilities.DegreesToDMS(Decftest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"Az0: {utilities.DegreesToDMS(AZ0, ":", ":", ":", 4)}; AzfCalc: {utilities.DegreesToDMS(AZfCalc, ":", ":", ":", 4)}; AzfTest: {utilities.DegreesToDMS(AZftest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"Alt0: {utilities.DegreesToDMS(Alt0, ":", ":", ":", 4)}; AltfCalc: {utilities.DegreesToDMS(AltfCalc, ":", ":", ":", 4)}; AltfTest: {utilities.DegreesToDMS(Altftest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"deltara: {utilities.DegreesToDMS(deltara, ":", ":", ":", 4)}; deltaratest: {utilities.DegreesToDMS(deltaratest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"deltadec: {utilities.DegreesToDMS(deltadec, ":", ":", ":", 4)}; deltadectest: {utilities.DegreesToDMS(deltadectest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"deltaazcalc: {utilities.DegreesToDMS(deltaazcalc, ":", ":", ":", 4)}; deltaaztest: {utilities.DegreesToDMS(deltaaztest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"deltaaltcalc: {utilities.DegreesToDMS(deltaaltcalc, ":", ":", ":", 4)}; deltaalttest: {utilities.DegreesToDMS(deltaalttest, ":", ":", ":", 4)}");
-                    LogMessage("RaDecToAltAz", $"Evaluation Complete");
-                    */
-
                     if (dur1 < 0)
                     {
                         Dir1 = GuideDirections.guideNorth;
@@ -2056,8 +2687,8 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("PulseGuideAwesome", $"Dir2: {Dir2}");
                     LogMessage("PulseGuideAwesome", $"Dur2: {dur2}");
 
-                    double curRA = RightAscension;
-                    double curDec = Declination;
+                    //double curRA = RightAscension;
+                    //double curDec = Declination;
 
                     if (dur1 > 0)
                     {
@@ -2165,40 +2796,46 @@ namespace ASCOM.TTS160.Telescope
                     case GuideDirections.guideEast:
                         var guidecmde = ":Mge" + Duration.ToString("D4") + "#";
                         LogMessage("GuideEast", guidecmde);
-                        //CommandBlind(guidecmde, true);
                         Commander(guidecmde, true, 0);
-                        MiscResources.EWPulseGuideFlag = true;
-                        MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.EWPulseGuideFlag = true;
+                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideNorth:
                         var guidecmdn = ":Mgs" + Duration.ToString("D4") + "#";  //North and south are reversed...
                         LogMessage("GuideNorth", guidecmdn);
-                        //CommandBlind(guidecmdn, true);
                         Commander(guidecmdn, true, 0);
-                        MiscResources.NSPulseGuideFlag = true;
-                        MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.NSPulseGuideFlag = true;
+                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideSouth:
                         var guidecmds = ":Mgn" + Duration.ToString("D4") + "#";  //North and south are reversed...
                         LogMessage("GuideSouth", guidecmds);
                         //CommandBlind(guidecmds, true);
                         Commander(guidecmds, true, 0);
-                        MiscResources.NSPulseGuideFlag = true;
-                        MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.NSPulseGuideFlag = true;
+                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideWest:
                         var guidecmdw = ":Mgw" + Duration.ToString("D4") + "#";
                         LogMessage("GuideWest", guidecmdw);
-                        //CommandBlind(guidecmdw, true);
                         Commander(guidecmdw, true, 0);
-                        MiscResources.EWPulseGuideFlag = true;
-                        MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.EWPulseGuideFlag = true;
+                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                 }
+                if (!profileProperties.PulseGuideDurationCompliant) { IsPulseGuiding = false; }
 
                 LogMessage("PulseGuide", "pulse guide command complete");
 
@@ -2293,40 +2930,45 @@ namespace ASCOM.TTS160.Telescope
                     case GuideDirections.guideEast:
                         var guidecmde = ":Mgw" + Duration.ToString("D4") + "#";  //Maybe 180 out in Az...
                         LogMessage("GuideEast", guidecmde);
-                        //CommandBlind(guidecmde, true);
                         Commander(guidecmde, true, 0);
-                        MiscResources.EWPulseGuideFlag = true;
-                        MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.EWPulseGuideFlag = true;
+                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideNorth:
                         var guidecmdn = ":Mgs" + Duration.ToString("D4") + "#";  //North and south are switched...
                         LogMessage("GuideNorth", guidecmdn);
-                        //CommandBlind(guidecmdn, true);
                         Commander(guidecmdn, true, 0);
-                        MiscResources.NSPulseGuideFlag = true;
-                        MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.NSPulseGuideFlag = true;
+                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideSouth:
                         var guidecmds = ":Mgn" + Duration.ToString("D4") + "#";  //North and south are switched...
                         LogMessage("GuideSouth", guidecmds);
-                        //CommandBlind(guidecmds, true);
                         Commander(guidecmds, true, 0);
-                        MiscResources.NSPulseGuideFlag = true;
-                        MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.NSPulseGuideFlag = true;
+                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                     case GuideDirections.guideWest:
                         var guidecmdw = ":Mge" + Duration.ToString("D4") + "#";  //Maybe 180 out in Az
                         LogMessage("GuideWest", guidecmdw);
-                        //CommandBlind(guidecmdw, true);
                         Commander(guidecmdw, true, 0);
-                        MiscResources.EWPulseGuideFlag = true;
-                        MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        //Thread.Sleep(Duration);
+                        if (profileProperties.PulseGuideDurationCompliant)
+                        {
+                            MiscResources.EWPulseGuideFlag = true;
+                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
+                        }
                         break;
                 }
+                if (!profileProperties.PulseGuideDurationCompliant) { IsPulseGuiding = false; }
 
                 LogMessage("PulseGuideAwesome", "pulse guide command complete");
 
@@ -2352,19 +2994,32 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("Right Ascension Get");
 
                     //var result = CommandString(":GR#", true);
-                    var result = Commander(":GR#", true, 2);
+                    double rightAscension = 0.0;
+                    if (DEV_FIRMWARE)
+                    {
+                        LogMessage("RightAscension Get", "Advanced Method: Max Precision");
+                        var result = Commander(":*GR#", true, 2).TrimEnd('#');
+                        LogMessage("RightAscension get", $"Retrieved value: {result} radians");
+                        rightAscension = double.Parse(result, CultureInfo.InvariantCulture) * (180 / Math.PI) / 15; ;//convert rad to hours       
+                        rightAscension = astroUtils.ConditionRA(rightAscension);
+
+                    }
+                    else
+                    {
+                        var result = Commander(":GR#", true, 2);
+                        rightAscension = utilities.HMSToHours(result);
+                    }
+                 
                     //:GR# Get telescope Right Ascension
                     //Returns: HH:MM.T# or HH:MM:SS#
                     //The current telescope Right Ascension depending on the selected precision.
 
-                    double rightAscension = utilities.HMSToHours(result);
-
-                    tl.LogMessage("Right Ascension", "Get - " + utilities.HoursToHMS(rightAscension, ":", ":"));
+                    tl.LogMessage("RightAscension get", utilities.HoursToHMS(rightAscension, ":", ":"));
                     return rightAscension;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Right Ascension Get", $"Error: {ex.Message}");
+                    tl.LogMessage("Right Ascension get", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -2394,13 +3049,13 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static void SetPark()
         {
-            tl.LogMessage("SetPark", "Not implemented");
+            LogMessage("SetPark", "Not implemented");
             throw new MethodNotImplementedException("SetPark");
         }
 
         internal static PierSide CalculateSideOfPier(double rightAscension)
         {
-            double hourAngle = astroUtilities.ConditionHA(SiderealTime - rightAscension);
+            double hourAngle = astroUtils.ConditionHA(SiderealTime - rightAscension);
 
             var destinationSOP = hourAngle > 0
                 ? PierSide.pierEast
@@ -2425,7 +3080,7 @@ namespace ASCOM.TTS160.Telescope
             }
             set
             {
-                tl.LogMessage("SideOfPier Set", "Not implemented");
+                LogMessage("SideOfPier Set", "Not implemented");
                 throw new PropertyNotImplementedException("SideOfPier", true);
             }
         }
@@ -2444,15 +3099,15 @@ namespace ASCOM.TTS160.Telescope
                     var result = Commander(":GS#", true, 2).TrimEnd('#');
                     double siderealTime = utilities.HMSToHours(result);
                     double siteLongitude = SiteLongitude;
-                    tl.LogMessage("SiderealTime", "Get GMST - " + siderealTime.ToString());
+                    LogMessage("SiderealTime", "Get GMST - " + siderealTime.ToString());
                     siderealTime += siteLongitude / 360.0 * 24.0;
-                    siderealTime = astroUtilities.ConditionRA(siderealTime);
-                    tl.LogMessage("SiderealTime", "Local Sidereal - " + siderealTime.ToString());
+                    siderealTime = astroUtils.ConditionRA(siderealTime);
+                    LogMessage("SiderealTime", "Local Sidereal - " + siderealTime.ToString());
                     return siderealTime;
                 }
                 catch (Exception ex)
                 {
-                    tl.LogMessage("Sidereal Time", $"Error: {ex.Message}");
+                    LogMessage("SiderealTime", $"Error: {ex.Message}");
                     throw;
                 }
             }
@@ -2503,7 +3158,21 @@ namespace ASCOM.TTS160.Telescope
                     else
                     {
 
-                        var result = Commander(":Gt#", true, 2);
+                        var result = "";
+                        if ( DEV_FIRMWARE )
+                        {
+
+                            LogMessage("SiteLatitude get", "Advanced Method: Max Precision");
+                            result = Commander(":*Gt#", true, 2);
+                            LogMessage("SiteLatitude get", $"Returned value: {result}");
+        
+                        }
+                        else
+                        {
+                            result = Commander(":Gt#", true, 2);
+                        }
+                        
+
                         //:Gt# Get Site Latitude
                         //Returns: sDD*MM#
 
@@ -2537,7 +3206,20 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("SiteLatitudeInit get", "Getting Site Latitude from the mount");
                     CheckConnected("SiteLatitudeInit get");
 
-                    var result = Commander(":Gt#", true, 2);
+                    var result = "";
+                    if (DEV_FIRMWARE)
+                    {
+
+                        LogMessage("SiteLatitude get", "Advanced Method: Max Precision");
+                        result = Commander(":*Gt#", true, 2);
+                        LogMessage("SiteLatitude get", $"Returned value: {result}");
+
+                    }
+                    else
+                    {
+                        result = Commander(":Gt#", true, 2);
+                    }
+
                     //:Gt# Get Site Latitude
                     //Returns: sDD*MM#
 
@@ -2576,7 +3258,19 @@ namespace ASCOM.TTS160.Telescope
                     else
                     {
                         //var result = CommandString(":Gg#", true);
-                        var result = Commander(":Gg#", true, 2);
+                        var result = "";
+                        if (DEV_FIRMWARE)
+                        {
+
+                            LogMessage("SiteLongitude get", "Advanced Method: Max Precision");
+                            result = Commander(":*Gg#", true, 2);
+                            LogMessage("SiteLongitude get", $"Returned value: {result}");
+
+                        }
+                        else
+                        {
+                            result = Commander(":Gg#", true, 2);
+                        }
                         //:Gg# Get Site Longitude
                         //Returns: sDDD*MM#, east negative
 
@@ -2614,7 +3308,19 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("SiteLongitudeInit get");
 
                     //var result = CommandString(":Gg#", true);
-                    var result = Commander(":Gg#", true, 2);
+                    var result = "";
+                    if (DEV_FIRMWARE)
+                    {
+
+                        LogMessage("SiteLongitude get", "Advanced Method: Max Precision");
+                        result = Commander(":*Gg#", true, 2);
+                        LogMessage("SiteLongitude get", $"Returned value: {result}");
+
+                    }
+                    else
+                    {
+                        result = Commander(":Gg#", true, 2);
+                    }
                     //:Gg# Get Site Longitude
                     //Returns: sDDD*MM#, east negative
 
@@ -2918,21 +3624,40 @@ namespace ASCOM.TTS160.Telescope
 
                 bool wasTracking = Tracking;
 
-                double TargRA = MiscResources.Target.RightAscension;
-                double TargDec = MiscResources.Target.Declination;
+                //double TargRA = TargetRightAscension;
+                //double TargDec = TargetDeclination;
                 //Assume Target is valid due to setting checks
 
-                //bool result = CommandBool(":MS#", true);
                 bool result = bool.Parse(Commander(":MS#", true, 1));
                 if (result) { throw new Exception("Unable to slew:" + result + " Object Below Horizon"); }
 
+                MiscResources.isAtHome = false;
                 Slewing = true;
+                MiscResources.SlewTarget.RightAscension = MiscResources.Target.RightAscension;
+                MiscResources.SlewTarget.Declination = MiscResources.Target.Declination;
                 MiscResources.IsSlewingToTarget = true;
 
-                //If we were tracking before, TTS-160 will stop tracking on commencement of slew
-                //then resume tracking when slew complete.  If TTS-160 was NOT tracking, we need to
-                //implement a loop to check on slew status using mount position rates
+                //TTS-160 will indicate slew in progress via Distance Bar command (:D#) returning "|#".  If it returns just "#" => slew complete
 
+                int counter = 0;
+                int RateLimit = 200; //Wait time between queries, in msec
+                int TimeLimit = 180; //How long to wait for slew to finish before throwing error, in sec
+                while (Slewing)
+                {
+                    utilities.WaitForMilliseconds(200); //limit asking rate to 0.2 Hz
+                    counter++;
+                    if (counter > TimeLimit * 1000 / RateLimit)
+                    {
+                        AbortSlew();
+                        throw new ASCOM.DriverException("SlewToTarget Failed: Timeout");
+                    }
+                }
+                Thread.Sleep(SlewSettleTime * 1000);
+                Slewing = false;
+                MiscResources.IsSlewingToTarget = false;
+                return;
+
+                /*
                 if (wasTracking)
                 {
                     int counter = 0;
@@ -3037,7 +3762,7 @@ namespace ASCOM.TTS160.Telescope
                         Decnew = 0;
 
                     }
-                }
+                } */
             }
             catch (Exception ex)
             {
@@ -3070,15 +3795,16 @@ namespace ASCOM.TTS160.Telescope
                     throw new ASCOM.InvalidOperationException("Error: GoTo In Progress");
                 }
 
-
-                //bool result = CommandBool(":MS#", true);
                 bool result = bool.Parse(Commander(":MS#", true, 1));
                 if (result) { throw new ASCOM.InvalidOperationException("Unable to slew: target below horizon"); }  //Need to review other implementation
+                //MiscResources.SlewTarget.RightAscension = TargetRightAscension;
+                //MiscResources.SlewTarget.Declination = TargetDeclination;
                 MiscResources.SlewTarget.RightAscension = MiscResources.Target.RightAscension;
                 MiscResources.SlewTarget.Declination = MiscResources.Target.Declination;
+                LogMessage("SlewToTargetAsync", $"SlewTarget Set To: RA: {MiscResources.SlewTarget.RightAscension}, Dec: {MiscResources.SlewTarget.Declination}");
+                MiscResources.isAtHome = false;
                 Slewing = true;
-                MiscResources.IsSlewingToTarget = true;  //Might be redundant...
-                MiscResources.IsSlewingAsync = true;
+                MiscResources.IsSlewingToTarget = true;
 
             }
             catch (Exception ex)
@@ -3094,7 +3820,7 @@ namespace ASCOM.TTS160.Telescope
         /// </summary>
         internal static bool Slewing
         {
-            //'Slewing' query (:D#) is not implemented in TTS-160, keep track in driver.
+            //'Slewing' query (:D#) _is_ implemented in TTS-160, keep track in driver.
             get
             {
                 try
@@ -3102,8 +3828,9 @@ namespace ASCOM.TTS160.Telescope
 
                     CheckConnected("Slewing");
                     LogMessage("Slewing get", "Getting Slew Status");
-                    //Catching the end of an async slew event
-                    //TODO - Add error checking to see if we actually ended where we wanted
+                    //Catching the end of an async slew event                    
+
+                    /*
                     if (MiscResources.IsSlewing && MiscResources.IsSlewingAsync && Tracking)  //If doing a slew (IsSlewingAsync = true), need an additional error check at end to confirm mount is ok.
                     {
                         if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart == DateTime.MinValue))
@@ -3181,7 +3908,168 @@ namespace ASCOM.TTS160.Telescope
                             LogMessage("Slewing get", "Unknown condition while checking slew status, please verify hardware is operating correctly");
                             throw new DriverException("Unknown condition while checking slew status, please verify hardware is operating correctly");
                         }
+                    }*/
+                    bool slewstatus = false;
+                    if (DEV_FIRMWARE )
+                    {
+                        LogMessage("Slewing get", "Advanced Firmware Detected");
+                        LogMessage("Slewing get", "Using advanced slew detection");
+                        slewstatus = Commander(":D#", true, 2).Equals("|#");
+                        if (!slewstatus)
+                        {
+                            if (SlewSettleTime > 0)
+                            {
+                                if (MiscResources.IsSlewing)
+                                {
+                                    if (MiscResources.SlewSettleStart == DateTime.MinValue)
+                                    {
+                                        MiscResources.SlewSettleStart = DateTime.Now;
+                                        LogMessage("Slewing Status", $"Slew Complete; Commencing Slew Settling");
+                                        return true;
+                                    }
+                                    else if (MiscResources.SlewSettleStart > DateTime.MinValue)
+                                    {
+                                        TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
+                                        if (ts.TotalSeconds >= SlewSettleTime)
+                                        {
+                                            LogMessage("Slewing Status", $"Slew complete; slew settle complete");
+                                            MiscResources.IsSlewing = false;
+                                            MiscResources.IsSlewingToTarget = false;  //If I was slewing to a target, I am no longer
+                                            MiscResources.MovingPrimary = false;
+                                            MiscResources.MovingSecondary = false;
+                                            MiscResources.SlewSettleStart = DateTime.MinValue;                                       
+                                            return false;
+                                        }
+                                        else
+                                        {
+                                            LogMessage("Slewing Status", $"Slew Complete; Slew Settling in progress");
+                                            return true;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    LogMessage("Slewing get", $"No movement detected, not previously slewing.  Returning: {slewstatus}");
+                                    MiscResources.IsSlewing = false;
+                                    MiscResources.IsSlewingToTarget = false;  //If I was slewing to a target, I am no longer
+                                    MiscResources.MovingPrimary = false;
+                                    MiscResources.MovingSecondary = false;
+                                    return slewstatus;
+                                }
+
+                            }
+                            else
+                            {
+                                LogMessage("Slewing get", $"Mount reported no movement.  No Settling Time. Returning: {slewstatus}");
+                                MiscResources.IsSlewing = false;
+                                MiscResources.IsSlewingToTarget = false;  //If I was slewing to a target, I am no longer
+                                MiscResources.MovingPrimary = false;
+                                MiscResources.MovingSecondary = false;
+                                return slewstatus;
+                            }
+                        }
+                        else
+                        {
+                            LogMessage("Slewing get", $"Mount reported movement, returning: {slewstatus}");
+                            MiscResources.IsSlewing = slewstatus;
+                            return slewstatus;
+                        }
+                        
                     }
+                    
+                    if (MiscResources.IsSlewing && MiscResources.IsSlewingToTarget)
+                    {
+                        LogMessage("Slewing get", "GoTo in progress, retrieving status");
+                        slewstatus = Commander(":D#", true, 2).Equals("|#");
+                        if (!slewstatus)
+                        {
+                            if (SlewSettleTime > 0)
+                            {
+                                if (MiscResources.SlewSettleStart == DateTime.MinValue)
+                                {
+                                    MiscResources.SlewSettleStart = DateTime.Now;
+                                    LogMessage("Slewing Status", $"{slewstatus}; Commencing Slew Settling");
+                                    return MiscResources.IsSlewing;
+                                }
+                                else if (MiscResources.SlewSettleStart > DateTime.MinValue)
+                                {
+                                    TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
+                                    if (ts.TotalSeconds >= SlewSettleTime)
+                                    {
+                                        LogMessage("Slewing Status", $"{slewstatus}; slew settle complete");
+                                        MiscResources.IsSlewing = false;
+                                        MiscResources.IsSlewingToTarget = false;
+                                        MiscResources.SlewSettleStart = DateTime.MinValue;
+
+                                        //Check that final location is within 1' of target, else throw an error
+                                        double RA = RightAscension;
+                                        double Dec = Declination;
+                                        double TRA = MiscResources.SlewTarget.RightAscension;
+                                        double TDec = MiscResources.SlewTarget.Declination;
+                                        double errdist = Math.Sqrt(Math.Pow((RA - TRA)*15, 2) + Math.Pow(Dec - TDec, 2)) / 60; //distance in minutes
+                                        LogMessage("Slewing get", $"SlewTarget retrieved as: RA: {TRA}, Dec: {TDec}");
+                                        LogMessage("Slewing get", $"Slew error distance: {errdist} arcmin, Tolerance: 1 arcmin");
+
+                                        if (errdist > 1.0) //See if errdistance is outside of tolerance
+                                        {
+                                            
+                                            string targRA = utilities.HoursToHMS(TRA);
+                                            string targDec = utilities.DegreesToDMS(TDec);
+                                            string actRA = utilities.HoursToHMS(RA);
+                                            string actDec = utilities.DegreesToDMS(Dec);
+                                            LogMessage("Slewing get", $"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin");
+                                            throw new DriverException($"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin.  Check to ensure mount is operating correctly");
+
+                                        }
+                                        TrackSetFollower(MiscResources.TrackSetFollower);
+                                        return false;
+                                    }
+                                    else
+                                    {
+                                        LogMessage("Slewing Status", $"{true}; Slew Settling in progress");
+                                        return MiscResources.IsSlewing;
+                                    }
+                                }
+                                else
+                                {
+                                    LogMessage("Slewing get", "Unexpected condition detected.  Correcting issue and returning best status.");
+                                    MiscResources.SlewSettleStart = DateTime.MinValue;
+                                    return MiscResources.IsSlewing;
+                                }
+                            }
+                            else
+                            {
+                                MiscResources.IsSlewingToTarget = false;
+                                MiscResources.IsSlewing = false;
+
+                                //Check that final location is within 1' of target, else throw an error
+                                double RA = RightAscension;
+                                double Dec = Declination;
+                                double TRA = MiscResources.SlewTarget.RightAscension;
+                                double TDec = MiscResources.SlewTarget.Declination;
+                                double errdist = Math.Sqrt(Math.Pow((RA - TRA)*15, 2) + Math.Pow(Dec - TDec, 2)) / 60; //distance in minutes
+                                LogMessage("Slewing get", $"Slew error distance: {errdist} arcmin, Tolerance: 1 arcmin");
+
+                                if (errdist > 1.0) //See if errdistance is outside of tolerance
+                                {
+
+                                    string targRA = utilities.HoursToHMS(TRA);
+                                    string targDec = utilities.DegreesToDMS(TDec);
+                                    string actRA = utilities.HoursToHMS(RA);
+                                    string actDec = utilities.DegreesToDMS(Dec);
+                                    LogMessage("Slewing get", $"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin");
+                                    throw new DriverException($"Slew result outside tolerance. Target Ra: {targRA}; Actual RA: {actRA}; Target Dec: {targDec}; Actual Dec: {actDec}; Error Distance: {errdist} arcmin.  Check to ensure mount is operating correctly");
+
+                                }
+
+                                return slewstatus;
+                            }
+                        }
+                        else 
+                        { 
+                            return slewstatus; 
+                        }
+                    }             
                     else if (MiscResources.EWMoveAxisStopFlag || MiscResources.NSMoveAxisStopFlag)  //If MoveAxis recently received a stop command...
                     {
                         if (Tracking)  //If tracking is on, all movement is stopped, we are good!  Reset everything, return false
@@ -3200,6 +4088,7 @@ namespace ASCOM.TTS160.Telescope
 
                         }
                         //Iterate through checking timing on both axes
+
                         if (!Tracking && MiscResources.EWMoveAxisStopFlag)
                         {
                             //Check to see if the settle time has timed out
@@ -3241,55 +4130,16 @@ namespace ASCOM.TTS160.Telescope
                             MiscResources.IsSlewing = false;
                             TrackSetFollower(MiscResources.TrackSetFollower);  //Don't want Tracking set to fail on Slewing check!
                         }
+
                         LogMessage("Slewing get", $"Slewing is: {MiscResources.IsSlewing}");
                         return MiscResources.IsSlewing;
 
-
                     }
-                    /*else if (!MiscResources.IsSlewingAsync && MiscResources.IsSlewing && Tracking)
-                    {
-                        if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart == DateTime.MinValue))
-                        {
-                            MiscResources.SlewSettleStart = DateTime.Now;
-                            LogMessage("Slewing Status", $"{false}; Commencing Slew Settling");
-                            return MiscResources.IsSlewing;
-                        }
-                        else if ((SlewSettleTime > 0) && (MiscResources.SlewSettleStart > DateTime.MinValue))
-                        {
-                            TimeSpan ts = DateTime.Now.Subtract(MiscResources.SlewSettleStart);
-                            if (ts.TotalSeconds >= SlewSettleTime)
-                            {
-                                LogMessage("Slewing Status", $"{false}; Slew Settling Complete");
-                                MiscResources.IsSlewing = false;
-                                MiscResources.SlewSettleStart = DateTime.MinValue;
-                                return false;
-                            }
-                            else
-                            {
-                                LogMessage("Slewing Status", $"{true}; Slew Settling in progress");
-                                return MiscResources.IsSlewing;
-                            }
-                        }
-                        if (SlewSettleTime == 0)
-                        {
-                            LogMessage("Slewing Status", $"{false}");
-                            MiscResources.IsSlewing = false;
-                            MiscResources.SlewSettleStart = DateTime.MinValue;
-                            return false;
-                        }
-                        else
-                        {
-                            LogMessage("Slewing get", "Unknown condition while checking slew status, please verify hardware is operating correctly");
-                            throw new DriverException("Unknown condition while checking slew status, please verify hardware is operating correctly");
-                        }
-
-                    }*/
                     else
                     {
                         LogMessage("Slewing get", $"Slewing is: {MiscResources.IsSlewing}");
                         return MiscResources.IsSlewing;
                     }
-
 
                 }
                 catch (Exception ex)
@@ -3321,19 +4171,29 @@ namespace ASCOM.TTS160.Telescope
                 if ((TAzimuth < 0) || (TAzimuth > 360)) { throw new ASCOM.InvalidValueException($"Invalid Azimuth ${TAzimuth}"); }
                 if ((TAltitude < 0) || (TAltitude > 90)) { throw new ASCOM.InvalidValueException($"Invalid Altitude ${TAltitude}"); }
 
+                double presyncAlt = Altitude;
+                double presyncAz = Azimuth;
+
                 T.SiteLatitude = SiteLatitude;
                 T.SiteLongitude = SiteLongitude;
                 T.SiteElevation = SiteElevation;
                 T.SiteTemperature = 20;
                 T.Refraction = false;
+                LogMessage("SyncToAltAz", "Calling T.SetAzimuthElevation Method:");
                 T.SetAzimuthElevation(TAzimuth, TAltitude);
 
                 SyncToCoordinates(T.RATopocentric, T.DECTopocentric);
                 LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
                 Thread.Sleep(SYNC_WAIT_TIME);
+
+                double postsyncAlt = Altitude;
+                double postsyncAz = Azimuth;
+
                 LogMessage("SyncToAltAz", "Complete");
-                LogMessage("SyncToAltAz", $"Target: Az: {TAzimuth}; Alt: {TAltitude}");
-                LogMessage("SyncToAltAz", $"Current: Az: {Azimuth}; Alt: {Altitude}");
+                LogMessage("SyncToAltAz", $"PreSync: Alt: " + utilities.DegreesToDMS(presyncAlt, ":", ":", "") + "; Az: " + utilities.DegreesToDMS(presyncAz, ":", ":", ""));
+                LogMessage("SyncToAltAz", $"Target: Alt " + utilities.DegreesToDMS(TAltitude, ":", ":", "") + "; Az: " + utilities.DegreesToDMS(TAzimuth, ":", ":", ""));
+                LogMessage("SyncToAltAz", $"PostSync: Alt: " + utilities.DegreesToDMS(postsyncAlt, ":", ":", "") + "; Az: " + utilities.DegreesToDMS(postsyncAz, ":", ":", ""));
+
             }
             catch (Exception ex)
             {
@@ -3373,28 +4233,82 @@ namespace ASCOM.TTS160.Telescope
                     throw new ASCOM.InvalidValueException($"Invalid Right Ascension: {RightAscension}");
                 }
 
-                double presyncRA = RightAscension;
-                double presyncDec = Declination;
-                var ret = Commander(":CM#", true, 2);
-                LogMessage("SyncToCoordinates", "Complete: " + ret);
-                LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
-                Thread.Sleep(SYNC_WAIT_TIME);
-                double postsyncRA = RightAscension;
-                double postsyncDec = Declination;
-                LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
-                LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":", ""));
-                LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
-                /*
-                //sync timing experiment!
-                                int iter = 3;
-                for(int i = 0; i < iter; i++)
+                if (DEV_FIRMWARE)
+                {
+                    if (MiscResources.AlignOnSyncEnabled)
+                    {
+                        LogMessage("SyncToCoordinates", "Advanced Firmware Detected");
+                        LogMessage("SyncToCoordinates", $"Align on Sync is: {MiscResources.AlignOnSyncEnabled}");
+                        LogMessage("SyncToCoordinates", $"Using extended Sync method");
+                        double presyncRA = RightAscension;
+                        double presyncDec = Declination;
+                        string ret = Commander(":*CM#", true, 2);
+                        LogMessage("SyncToCoordinates", "Trying to Parse this string: " + ret);
+                        int retpoints = int.Parse(ret.TrimEnd('#'));
+                        LogMessage("SyncToCoordinates", $"Parsed as: {retpoints}");
+                        retpoints--;
+                        if (retpoints > 0)
+                        {
+                            LogMessage("SyncToCoordinates", $"Complete, {retpoints} points remain.");
+                            MiscResources.AlignOnSyncPoints = retpoints;
+                        }
+                        else if (retpoints == 0)
+                        {
+                            LogMessage("SyncToCoordinates", $"Complete, {retpoints} points remain.");
+                            LogMessage("SyncToCoordinates", $"Disabling Align on Sync mode.");
+                            MiscResources.AlignOnSyncEnabled = false;
+                            MiscResources.AlignOnSyncPoints = retpoints;
+                        }
+                        else
+                        {
+                            LogMessage("SyncToCoordinates", $"Align on Sync failed, disabling Align on Sync mode.");
+                            MiscResources.AlignOnSyncEnabled = false;
+                            MiscResources.AlignOnSyncPoints = 0;
+                        }
+                        //var ret = Commander(":*CM#", true, 2);
+                        LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                        Thread.Sleep(SYNC_WAIT_TIME);
+                        double postsyncRA = RightAscension;
+                        double postsyncDec = Declination;
+                        double targRA = TargetRightAscension;
+                        double targDec = TargetDeclination;
+                        LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                        LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
+                        LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                    }
+                    else
+                    {
+                        double presyncRA = RightAscension;
+                        double presyncDec = Declination;
+                        LogMessage("SyncToCoordinates", "Advanced Firmware detected.");
+                        LogMessage("SyncToCoordinates", $"Align on Sync is: {MiscResources.AlignOnSyncEnabled}");
+                        LogMessage("SyncToCoordinates", $"Using old Sync method");
+                        var ret = Commander(":CM#", true, 2);
+                        LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                        Thread.Sleep(SYNC_WAIT_TIME);
+                        double postsyncRA = RightAscension;
+                        double postsyncDec = Declination;
+                        LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                        LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":", ""));
+                        LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                    }
+                }
+                else
                 {
 
-                    postsyncRA = utilities.HMSToHours(Commander(":GR#", true, 2));
-                    postsyncDec = utilities.DMSToDegrees(Commander(":GD#", true, 2));
-                    LogMessage("SyncToCoordinates", $"Iter: {i}; PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                    double presyncRA = RightAscension;
+                    double presyncDec = Declination;
+                    var ret = Commander(":CM#", true, 2);
+                    LogMessage("SyncToCoordinates", "Complete: " + ret);
+                    LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                    Thread.Sleep(SYNC_WAIT_TIME);
+                    double postsyncRA = RightAscension;
+                    double postsyncDec = Declination;
+                    LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                    LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":", ""));
+                    LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
                 }
-                */
+
             }
             catch (Exception ex)
             {
@@ -3414,25 +4328,83 @@ namespace ASCOM.TTS160.Telescope
                 if (!MiscResources.IsTargetSet) { throw new Exception("Target not set"); }
                 CheckConnected("SyncToTarget");
                 CheckParked("SyncToTarget");
-                SlewingInternalUpdate();
+                SlewingInternalUpdate();   
 
-                //TODO Tracking control is not implemented in TTS-160, no point in checking it.....IT NOW IS, TODO FIX IT!  Not required for Sync methods     
+                if (DEV_FIRMWARE)
+                {
+                    if (MiscResources.AlignOnSyncEnabled)
+                    {
+                        double presyncRA = RightAscension;
+                        double presyncDec = Declination;
+                        var ret = Commander(":*CM#", true, 2);
+                        int retpoints = int.Parse(ret.TrimEnd('#'));
+                        retpoints--;
+                        if (retpoints > 0)
+                        {
+                            LogMessage("SyncToCoordinates", $"Complete, {retpoints} points remain.");
+                            MiscResources.AlignOnSyncPoints = retpoints;
+                        }
+                        else if (retpoints == 0)
+                        {
+                            LogMessage("SyncToCoordinates", $"Complete, {retpoints} points remain.");
+                            LogMessage("SyncToCoordinates", $"Disabling Align on Sync mode.");
+                            MiscResources.AlignOnSyncEnabled = false;
+                            MiscResources.AlignOnSyncPoints = retpoints;
+                        }
+                        else
+                        {
+                            LogMessage("SyncToCoordinates", $"Align on Sync failed, disabling Align on Sync mode.");
+                            MiscResources.AlignOnSyncEnabled = false;
+                            MiscResources.AlignOnSyncPoints = 0;
+                        }
+                        LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                        Thread.Sleep(SYNC_WAIT_TIME);
+                        double postsyncRA = RightAscension;
+                        double postsyncDec = Declination;
+                        double targRA = TargetRightAscension;
+                        double targDec = TargetDeclination;
+                        LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                        LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
+                        LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                    }
+                    else
+                    {
+                        double presyncRA = RightAscension;
+                        double presyncDec = Declination;
+                        var ret = Commander(":CM#", true, 2);  //For some reason TTS-160 returns a message and not catching it causes
+                                                               //further commands to act funny (results are 1 order off despite the
+                                                               //buffer clears)
+                        LogMessage("SyncToTarget", "Complete: " + ret);
+                        LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                        Thread.Sleep(SYNC_WAIT_TIME);
+                        double postsyncRA = RightAscension;
+                        double postsyncDec = Declination;
+                        double targRA = TargetRightAscension;
+                        double targDec = TargetDeclination;
+                        LogMessage("SyncTotarget", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                        LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
+                        LogMessage("SyncToTarget", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                    }
+                }
+                else
+                {
+                    double presyncRA = RightAscension;
+                    double presyncDec = Declination;
+                    var ret = Commander(":CM#", true, 2);  //For some reason TTS-160 returns a message and not catching it causes
+                                                           //further commands to act funny (results are 1 order off despite the
+                                                           //buffer clears)
+                    LogMessage("SyncToTarget", "Complete: " + ret);
+                    LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
+                    Thread.Sleep(SYNC_WAIT_TIME);
+                    double postsyncRA = RightAscension;
+                    double postsyncDec = Declination;
+                    double targRA = TargetRightAscension;
+                    double targDec = TargetDeclination;
+                    LogMessage("SyncTotarget", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
+                    LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
+                    LogMessage("SyncToTarget", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+                }
 
-                double presyncRA = RightAscension;
-                double presyncDec = Declination;
-                var ret = Commander(":CM#", true, 2);  //For some reason TTS-160 returns a message and not catching it causes
-                                                       //further commands to act funny (results are 1 order off despite the
-                                                       //buffer clears)
-                LogMessage("SyncToTarget", "Complete: " + ret);
-                LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
-                Thread.Sleep(SYNC_WAIT_TIME);
-                double postsyncRA = RightAscension;
-                double postsyncDec = Declination;
-                double targRA = TargetRightAscension;
-                double targDec = TargetDeclination;
-                LogMessage("SyncTotarget", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
-                LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
-                LogMessage("SyncToTarget", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
             }
             catch (Exception ex)
             {
@@ -3816,15 +4788,12 @@ namespace ASCOM.TTS160.Telescope
                     DateTime localdatetime = value.AddHours((-1) * utcoffsetnum);
 
                     string newdate = localdatetime.ToString("MM/dd/yy");
-                    //string res = CommandString(":SC" + newdate + "#", true);
                     string res = Commander(":SC" + newdate + "#", true, 2);
                     bool resBool = char.GetNumericValue(res[0]) == 1;
                     if (!resBool) { throw new ASCOM.InvalidValueException("UTC Date Set Invalid Date: " + newdate); }
 
                     string newtime = localdatetime.ToString("HH:mm:ss");
-                    //resBool = CommandBool(":SL" + newtime + "#", true);
                     resBool = bool.Parse(Commander(":SL" + newtime + "#", true, 1));
-                    //resBool = char.GetNumericValue(res[0]) == 1;
                     LogMessage("UTCDate set", "Issuing a throwaway SiderealTime call to ensure next UTCDate pull provides accurate time");
                     double siderealthrow = SiderealTime; //Firmware bug, ensures the next read handpad time is correct
                     if (!resBool) { throw new ASCOM.InvalidValueException("UTC Date Set Invalid Time: " + newtime); }
@@ -3912,25 +4881,27 @@ namespace ASCOM.TTS160.Telescope
 
                     driverProfile.DeviceType = "Telescope";
 
-                    profileProperties.TraceLogger = Convert.ToBoolean(driverProfile.GetValue(driverID, traceStateProfileName, string.Empty, traceStateDefault));
-                    profileProperties.ComPort = driverProfile.GetValue(driverID, comPortProfileName, string.Empty, comPortDefault);
-                    profileProperties.SiteElevation = Double.Parse(driverProfile.GetValue(driverID, siteElevationProfileName, string.Empty, siteElevationDefault));
-                    profileProperties.SlewSettleTime = Int16.Parse(driverProfile.GetValue(driverID, SlewSettleTimeName, string.Empty, SlewSettleTimeDefault));
-                    profileProperties.SiteLatitude = Double.Parse(driverProfile.GetValue(driverID, SiteLatitudeName, string.Empty, SiteLatitudeDefault));
-                    profileProperties.SiteLongitude = Double.Parse(driverProfile.GetValue(driverID, SiteLongitudeName, string.Empty, SiteLongitudeDefault));
-                    profileProperties.CompatMode = Int32.Parse(driverProfile.GetValue(driverID, CompatModeName, string.Empty, CompatModeDefault));
-                    profileProperties.CanSetGuideRatesOverride = Convert.ToBoolean(driverProfile.GetValue(driverID, CanSetGuideRatesOverrideName, string.Empty, CanSetGuideRatesOverrideDefault));
-                    profileProperties.SyncTimeOnConnect = Convert.ToBoolean(driverProfile.GetValue(driverID, SyncTimeOnConnectName, string.Empty, SyncTimeOnConnectDefault));
-                    profileProperties.GuideComp = Int32.Parse(driverProfile.GetValue(driverID, GuideCompName, string.Empty, GuideCompDefault));
-                    profileProperties.GuideCompMaxDelta = Int32.Parse(driverProfile.GetValue(driverID, GuideCompMaxDeltaName, string.Empty, GuideCompMaxDeltaDefault));
-                    profileProperties.GuideCompBuffer = Int32.Parse(driverProfile.GetValue(driverID, GuideCompBufferName, string.Empty, GuideCompBufferDefault));
-                    profileProperties.TrackingRateOnConnect = Int32.Parse(driverProfile.GetValue(driverID, TrackingRateOnConnectName, string.Empty, TrackingRateOnConnectDefault));
-                    profileProperties.PulseGuideEquFrame = Convert.ToBoolean(driverProfile.GetValue(driverID, PulseGuideEquFrameName, string.Empty, PulseGuideEquFrameDefault));
-                    profileProperties.DriverSiteOverride = Convert.ToBoolean(driverProfile.GetValue(driverID, DriverSiteOverrideName, string.Empty, DriverSiteOverrideDefault));
-                    profileProperties.DriverSiteLatitude = Double.Parse(driverProfile.GetValue(driverID, DriverSiteLatitudeName, string.Empty, DriverSiteLatitudeDefault));
-                    profileProperties.DriverSiteLongitude = Double.Parse(driverProfile.GetValue(driverID, DriverSiteLongitudeName, string.Empty, DriverSiteLongitudeDefault));
-                    profileProperties.HCGuideRate = Int32.Parse(driverProfile.GetValue(driverID, HCGuideRateName, string.Empty, HCGuideRateDefault));
-
+                    profileProperties.TraceLogger = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, traceStateProfileName, string.Empty, traceStateDefault));
+                    profileProperties.ComPort = driverProfile.GetValue(DriverProgId, comPortProfileName, string.Empty, comPortDefault);
+                    profileProperties.SiteElevation = Double.Parse(driverProfile.GetValue(DriverProgId, siteElevationProfileName, string.Empty, siteElevationDefault));
+                    profileProperties.SlewSettleTime = Int16.Parse(driverProfile.GetValue(DriverProgId, SlewSettleTimeName, string.Empty, SlewSettleTimeDefault));
+                    profileProperties.SiteLatitude = Double.Parse(driverProfile.GetValue(DriverProgId, SiteLatitudeName, string.Empty, SiteLatitudeDefault));
+                    profileProperties.SiteLongitude = Double.Parse(driverProfile.GetValue(DriverProgId, SiteLongitudeName, string.Empty, SiteLongitudeDefault));
+                    profileProperties.CompatMode = Int32.Parse(driverProfile.GetValue(DriverProgId, CompatModeName, string.Empty, CompatModeDefault));
+                    profileProperties.CanSetGuideRatesOverride = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, CanSetGuideRatesOverrideName, string.Empty, CanSetGuideRatesOverrideDefault));
+                    profileProperties.SyncTimeOnConnect = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, SyncTimeOnConnectName, string.Empty, SyncTimeOnConnectDefault));
+                    profileProperties.GuideComp = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompName, string.Empty, GuideCompDefault));
+                    profileProperties.GuideCompMaxDelta = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompMaxDeltaName, string.Empty, GuideCompMaxDeltaDefault));
+                    profileProperties.GuideCompBuffer = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompBufferName, string.Empty, GuideCompBufferDefault));
+                    profileProperties.TrackingRateOnConnect = Int32.Parse(driverProfile.GetValue(DriverProgId, TrackingRateOnConnectName, string.Empty, TrackingRateOnConnectDefault));
+                    profileProperties.PulseGuideEquFrame = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, PulseGuideEquFrameName, string.Empty, PulseGuideEquFrameDefault));
+                    profileProperties.DriverSiteOverride = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, DriverSiteOverrideName, string.Empty, DriverSiteOverrideDefault));
+                    profileProperties.DriverSiteLatitude = Double.Parse(driverProfile.GetValue(DriverProgId, DriverSiteLatitudeName, string.Empty, DriverSiteLatitudeDefault));
+                    profileProperties.DriverSiteLongitude = Double.Parse(driverProfile.GetValue(DriverProgId, DriverSiteLongitudeName, string.Empty, DriverSiteLongitudeDefault));
+                    profileProperties.HCGuideRate = Int32.Parse(driverProfile.GetValue(DriverProgId, HCGuideRateName, string.Empty, HCGuideRateDefault));
+                    profileProperties.PulseGuideDurationCompliant = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, PulseGuideDurationCompliantName, string.Empty, PulseGuideDurationCompliantDefault));
+                    profileProperties.AlignOnSyncEnabled = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, AlignOnSyncEnabledName, string.Empty, AlignOnSyncEnabledDefault));
+                    profileProperties.AlignOnSyncPoints = Int32.Parse(driverProfile.GetValue(DriverProgId, AlignOnSyncPointsName, string.Empty, AlignOnSyncPointsDefault));
                 }
                 return profileProperties;
             }
@@ -3948,25 +4919,27 @@ namespace ASCOM.TTS160.Telescope
                 {
                     driverProfile.DeviceType = "Telescope";
 
-                    driverProfile.WriteValue(driverID, traceStateProfileName, profileProperties.TraceLogger.ToString());
-                    if (!(profileProperties.ComPort is null)) driverProfile.WriteValue(driverID, comPortProfileName, profileProperties.ComPort);
-                    driverProfile.WriteValue(driverID, siteElevationProfileName, profileProperties.SiteElevation.ToString());
-                    driverProfile.WriteValue(driverID, SlewSettleTimeName, profileProperties.SlewSettleTime.ToString());
-                    driverProfile.WriteValue(driverID, SiteLatitudeName, profileProperties.SiteLatitude.ToString());
-                    driverProfile.WriteValue(driverID, SiteLongitudeName, profileProperties.SiteLongitude.ToString());
-                    driverProfile.WriteValue(driverID, CompatModeName, profileProperties.CompatMode.ToString());
-                    driverProfile.WriteValue(driverID, CanSetGuideRatesOverrideName, profileProperties.CanSetGuideRatesOverride.ToString());
-                    driverProfile.WriteValue(driverID, SyncTimeOnConnectName, profileProperties.SyncTimeOnConnect.ToString());
-                    driverProfile.WriteValue(driverID, GuideCompName, profileProperties.GuideComp.ToString());
-                    driverProfile.WriteValue(driverID, GuideCompMaxDeltaName, profileProperties.GuideCompMaxDelta.ToString());
-                    driverProfile.WriteValue(driverID, GuideCompBufferName, profileProperties.GuideCompBuffer.ToString());
-                    driverProfile.WriteValue(driverID, TrackingRateOnConnectName, profileProperties.TrackingRateOnConnect.ToString());
-                    driverProfile.WriteValue(driverID, PulseGuideEquFrameName, profileProperties.PulseGuideEquFrame.ToString());
-                    driverProfile.WriteValue(driverID, DriverSiteOverrideName, profileProperties.DriverSiteOverride.ToString());
-                    driverProfile.WriteValue(driverID, DriverSiteLatitudeName, profileProperties.DriverSiteLatitude.ToString());
-                    driverProfile.WriteValue(driverID, DriverSiteLongitudeName, profileProperties.DriverSiteLongitude.ToString());
-                    driverProfile.WriteValue(driverID, HCGuideRateName, profileProperties.HCGuideRate.ToString());
-
+                    driverProfile.WriteValue(DriverProgId, traceStateProfileName, profileProperties.TraceLogger.ToString());
+                    if (!(profileProperties.ComPort is null)) driverProfile.WriteValue(DriverProgId, comPortProfileName, profileProperties.ComPort);
+                    driverProfile.WriteValue(DriverProgId, siteElevationProfileName, profileProperties.SiteElevation.ToString());
+                    driverProfile.WriteValue(DriverProgId, SlewSettleTimeName, profileProperties.SlewSettleTime.ToString());
+                    driverProfile.WriteValue(DriverProgId, SiteLatitudeName, profileProperties.SiteLatitude.ToString());
+                    driverProfile.WriteValue(DriverProgId, SiteLongitudeName, profileProperties.SiteLongitude.ToString());
+                    driverProfile.WriteValue(DriverProgId, CompatModeName, profileProperties.CompatMode.ToString());
+                    driverProfile.WriteValue(DriverProgId, CanSetGuideRatesOverrideName, profileProperties.CanSetGuideRatesOverride.ToString());
+                    driverProfile.WriteValue(DriverProgId, SyncTimeOnConnectName, profileProperties.SyncTimeOnConnect.ToString());
+                    driverProfile.WriteValue(DriverProgId, GuideCompName, profileProperties.GuideComp.ToString());
+                    driverProfile.WriteValue(DriverProgId, GuideCompMaxDeltaName, profileProperties.GuideCompMaxDelta.ToString());
+                    driverProfile.WriteValue(DriverProgId, GuideCompBufferName, profileProperties.GuideCompBuffer.ToString());
+                    driverProfile.WriteValue(DriverProgId, TrackingRateOnConnectName, profileProperties.TrackingRateOnConnect.ToString());
+                    driverProfile.WriteValue(DriverProgId, PulseGuideEquFrameName, profileProperties.PulseGuideEquFrame.ToString());
+                    driverProfile.WriteValue(DriverProgId, DriverSiteOverrideName, profileProperties.DriverSiteOverride.ToString());
+                    driverProfile.WriteValue(DriverProgId, DriverSiteLatitudeName, profileProperties.DriverSiteLatitude.ToString());
+                    driverProfile.WriteValue(DriverProgId, DriverSiteLongitudeName, profileProperties.DriverSiteLongitude.ToString());
+                    driverProfile.WriteValue(DriverProgId, HCGuideRateName, profileProperties.HCGuideRate.ToString());
+                    driverProfile.WriteValue(DriverProgId, PulseGuideDurationCompliantName, profileProperties.PulseGuideDurationCompliant.ToString());
+                    driverProfile.WriteValue(DriverProgId, AlignOnSyncEnabledName, profileProperties.AlignOnSyncEnabled.ToString());
+                    driverProfile.WriteValue(DriverProgId, AlignOnSyncPointsName, profileProperties.AlignOnSyncPoints.ToString());
                 }
             }
 

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using ASCOM.TTS160.Telescope;
+using Microsoft.VisualBasic;
 
 namespace ASCOM.TTS160
 {
@@ -124,6 +125,8 @@ namespace ASCOM.TTS160
             bool CanSetTrackingOverride = false;
             bool CanSetGuideRatesOverride = false;
             int HCGuideRate = 2;
+            int AlignOnSyncPoints = 0;
+            bool AlignOnSyncEnabled = false;
 
             utilities = new Util();
 
@@ -155,6 +158,22 @@ namespace ASCOM.TTS160
             else
             if (radioButtonGR4.Checked) { HCGuideRate = 4; }
 
+            if (checkBoxAlignonSync.Checked)
+            {
+                AlignOnSyncEnabled = true;
+                if (radioButtonAlignonSync1.Checked)
+                    AlignOnSyncPoints = 1;
+                else if (radioButtonAlignonSync2.Checked)
+                    AlignOnSyncPoints = 2;
+                else
+                    AlignOnSyncPoints = 3;
+            }
+            else
+            {
+                AlignOnSyncEnabled = false;
+                AlignOnSyncPoints = 0;
+            }
+
             try
             {
                 double driversitelatbuff = utilities.DMSToDegrees(textBoxDriverSiteLat.Text);
@@ -181,12 +200,15 @@ namespace ASCOM.TTS160
                     DriverSiteOverride = checkBoxDriverSiteOverride.Checked,
                     DriverSiteLatitude = driversitelatbuff,
                     DriverSiteLongitude = driversitelongbuff,
-                    HCGuideRate = HCGuideRate
+                    HCGuideRate = HCGuideRate,
+                    PulseGuideDurationCompliant = checkBoxPulseGuideDuration.Checked,
+                    AlignOnSyncEnabled = AlignOnSyncEnabled,
+                    AlignOnSyncPoints = AlignOnSyncPoints
                 };
 
                 return profileProperties;
             }
-            catch(Exception ex)
+            catch
             {
                 throw;
             }
@@ -320,6 +342,28 @@ namespace ASCOM.TTS160
             checkBoxDriverSiteOverride.Checked = profileProperties.DriverSiteOverride;
 
             checkBoxPulseGuideTopoEqu.Checked = profileProperties.PulseGuideEquFrame;
+            checkBoxPulseGuideDuration.Checked = profileProperties.PulseGuideDurationCompliant;
+
+            radioButtonGuidingNone.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            radioButtonGuidingAlt.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            textMaxDelta.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            textBuffer.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+
+            checkBoxAlignonSync.Checked = profileProperties.AlignOnSyncEnabled;
+            radioButtonAlignonSync1.Enabled = radioButtonAlignonSync2.Enabled = radioButtonAlignonSync3.Enabled = profileProperties.AlignOnSyncEnabled;
+            switch(profileProperties.AlignOnSyncPoints)
+            {
+                case 1:
+                    radioButtonAlignonSync1.Checked = true;
+                    break;
+                case 0:
+                case 2:
+                    radioButtonAlignonSync2.Checked = true;
+                    break;
+                case 3:
+                    radioButtonAlignonSync3.Checked = true;
+                    break;
+            }
 
         }
 
@@ -349,6 +393,46 @@ namespace ASCOM.TTS160
                 MessageBox.Show("Please enter only numbers");
                 textBuffer.Text = textBuffer.Text.Remove(textBuffer.Text.Length - 1);
             }
+        }
+
+        private void checkBoxPulseGuideTopoEqu_CheckedChanged(object sender, EventArgs e)
+        {
+            if (checkBoxPulseGuideTopoEqu.Checked)
+            {
+                radioButtonGuidingNone.Checked = checkBoxPulseGuideTopoEqu.Checked;
+                radioButtonGuidingAlt.Checked = !checkBoxPulseGuideTopoEqu.Checked;
+            }
+
+            radioButtonGuidingNone.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            radioButtonGuidingAlt.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            textMaxDelta.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+            textBuffer.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
+        }
+
+        private void tabControl1_Selecting(object sender, TabControlCancelEventArgs e)
+        {
+            if (e.TabPage == tabPage2)
+            {
+                string nl = Environment.NewLine;
+                string input = Interaction.InputBox($"CAUTION: these options may result{nl}in erratic driver behavior and should{nl}be left alone.{nl}{nl}Tal, ven og gå ind.",
+                    "Developer Features for Troubleshooting");
+                if (!input.ToUpper().Equals("VEN"))
+                {
+                    e.Cancel = true;
+                }
+            }
+              
+        }
+
+        private void checkBoxAlignonSync_CheckedChanged(object sender, EventArgs e)
+        {
+            radioButtonAlignonSync1.Enabled = radioButtonAlignonSync2.Enabled = radioButtonAlignonSync3.Enabled = checkBoxAlignonSync.Checked;
+
+        }
+
+        private void radioButtonAlignonSync1_CheckedChanged(object sender, EventArgs e)
+        {
+
         }
     }
 

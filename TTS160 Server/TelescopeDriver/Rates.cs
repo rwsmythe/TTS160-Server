@@ -1,4 +1,5 @@
 ﻿using ASCOM.DeviceInterface;
+using ASCOM.TTS160.Telescope;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -105,8 +106,17 @@ namespace ASCOM.TTS160
                     //
                     // Note (21Jul23): The above is incorrect, rates are selectable to 3, 2.2, 1.4 and guide rates.  I will use 1 "/sec as a label,
                     // if selected, the mount will move at the currently selected guide rate
-                    rates = new Rate[] { new Rate(0.000277777777777778, 0.000277777777777778),
+
+                    if ( TelescopeHardware.DEV_FIRMWARE )
+                    {
+                        rates = new Rate[] { new Rate(0, 3.5) };
+                    }
+                    else
+                    {
+                        rates = new Rate[] { new Rate(0.000277777777777778, 0.000277777777777778),
                         new Rate( 1.4, 1.4), new Rate( 2.2, 2.2), new Rate( 3, 3) };
+                    }
+                                      
                     break;
                 case TelescopeAxes.axisSecondary:
                     // **Currently, TTS-160 supports 1, 3, 5, 10, 20 "/sec.  Selection happens in the handpad, these are for reference only
@@ -114,8 +124,16 @@ namespace ASCOM.TTS160
                     //
                     // Note (21Jul23): The above is incorrect, rates are selectable to 3, 2.2, 1.4 and guide rates.  I will use 1 "/sec as a label,
                     // if selected, the mount will move at the currently selected guide rate
-                    rates = new Rate[] { new Rate(0.000277777777777778, 0.000277777777777778),
+                    
+                    if (TelescopeHardware.DEV_FIRMWARE)
+                    {
+                        rates = new Rate[] { new Rate(0, 3.5) };
+                    }
+                    else
+                    {
+                        rates = new Rate[] { new Rate(0.000277777777777778, 0.000277777777777778),
                         new Rate( 1.4, 1.4), new Rate( 2.2, 2.2), new Rate( 3, 3) };
+                    }
                     break;
                 case TelescopeAxes.axisTertiary:
                     // TODO Initialize this array with any Tertiary axis rates that your driver may provide

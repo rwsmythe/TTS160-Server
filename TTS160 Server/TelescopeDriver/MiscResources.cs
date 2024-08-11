@@ -123,12 +123,6 @@ namespace ASCOM.TTS160
             get => _SettleTime;
             internal set => _SettleTime.Set(value);
         }
-        private static readonly ThreadSafeValue<Boolean> _isSlewingAsync = false;
-        public static Boolean IsSlewingAsync
-        {
-            get => _isSlewingAsync;
-            internal set => _isSlewingAsync.Set(value);
-        }
 
         private static readonly ThreadSafeValue<DateTime> _SlewSettleStart = DateTime.MinValue;
         public static DateTime SlewSettleStart
@@ -192,6 +186,26 @@ namespace ASCOM.TTS160
         {
             get => _TrackSetFollower;
             internal set => _TrackSetFollower.Set(value);
+        }
+        private static readonly ThreadSafeValue<bool> _isAtHome = false; //AtHome Tracker
+        public static bool isAtHome
+        {
+            get => _isAtHome;
+            internal set => _isAtHome.Set(value);
+        }
+
+        private static readonly ThreadSafeValue<bool> _AlignOnSyncEnabled = false; //status of AlignOnSync
+        public static bool AlignOnSyncEnabled
+        {
+            get => _AlignOnSyncEnabled;
+            internal set => _AlignOnSyncEnabled.Set(value);
+        }
+
+        private static readonly ThreadSafeValue<int> _AlignOnSyncPoints = 0; //Track number of points remaining
+        public static int AlignOnSyncPoints
+        {
+            get => _AlignOnSyncPoints;
+            internal set => _AlignOnSyncPoints.Set(value);
         }
     }
 }

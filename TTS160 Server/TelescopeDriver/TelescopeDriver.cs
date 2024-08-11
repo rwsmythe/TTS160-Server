@@ -8,12 +8,12 @@
 // Author:		(XXX) Your N. Here <your@email.here>
 //
 
-using ASCOM;
 using ASCOM.DeviceInterface;
 using ASCOM.LocalServer;
 using ASCOM.Utilities;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -37,17 +37,19 @@ namespace ASCOM.TTS160.Telescope
     [ProgId("ASCOM.TTS160.Telescope")]
     [ServedClassName("Track The Stars TTS-160")] // Driver description that appears in the Chooser, customise as required
     [ClassInterface(ClassInterfaceType.None)]
-    public class Telescope : ReferenceCountedObjectBase, ITelescopeV3, IDisposable
+    public class Telescope : ReferenceCountedObjectBase, ITelescopeV4, IDisposable
     {
         internal static string DriverProgId; // ASCOM DeviceID (COM ProgID) for this driver, the value is retrieved from the ServedClassName attribute in the class initialiser.
-        internal static string DriverDescription; // The value is retrieved from the ServedClassName attribute in the class initialiser.
+        internal static string DriverDescription; // The value is retrieved from the ServedClassName attribute in the class initializer.
 
         // connectedState holds the connection state from this driver instance's perspective, as opposed to the local server's perspective, which may be different because of other client connections.
         internal bool connectedState; // The connected state from this driver's perspective)
         internal TraceLogger tl; // Trace logger object to hold diagnostic information just for this instance of the driver, as opposed to the local server's log, which includes activity from all driver instances.
         private bool disposedValue;
 
-        #region Initialisation and Dispose
+        private Guid uniqueId; // A unique ID for this instance of the driver
+
+        #region Initialization and Dispose
 
         /// <summary>
         /// Initializes a new instance of the <see cref="TTS160"/> class. Must be public to successfully register for COM.
@@ -77,8 +79,11 @@ namespace ASCOM.TTS160.Telescope
                 LogMessage("Telescope", "Starting driver initialization");
                 LogMessage("Telescope", $"ProgID: {DriverProgId}, Description: {DriverDescription}");
 
-                connectedState = false; // Initialise connected to false
+                connectedState = false; // Initialize connected to false
 
+                // Create a unique ID to identify this driver instance
+                uniqueId = Guid.NewGuid();
+                LogMessage("Telescope", $"Instance uniqueID: {uniqueId}");
 
                 LogMessage("Telescope", "Completed initialization");
             }
@@ -177,7 +182,7 @@ namespace ASCOM.TTS160.Telescope
 
         #endregion
 
-        // PUBLIC COM INTERFACE ITelescopeV3 IMPLEMENTATION
+        // PUBLIC COM INTERFACE ITelescopeV4 IMPLEMENTATION
 
         #region Common properties and methods.
 
@@ -338,6 +343,32 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
+        /// Connect to the device asynchronously using Connecting as the completion variable
+        /// </summary>
+        public void Connect()
+        {
+            try
+            {
+                //MessageBox.Show("Wait!");
+                if (connectedState)
+                {
+                    LogMessage("Connect", "Device already connected, ignoring method");
+                    return;
+                }
+
+                LogMessage("Connect", $"Calling Connect; uniqueId:{uniqueId}");
+                TelescopeHardware.Connect(uniqueId);
+                connectedState = true;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("Connect", $"Threw an exception: \r\n{ex}");
+                throw;
+            }
+            LogMessage("Connect", $"Connect completed OK");
+        }
+
+        /// <summary>
         /// Set True to connect to the device hardware. Set False to disconnect from the device hardware.
         /// You can also read the property to check whether it is connected. This reports the current hardware state.
         /// </summary>
@@ -364,29 +395,67 @@ namespace ASCOM.TTS160.Telescope
                 {
                     if (value == connectedState)
                     {
-                        LogMessage("Connected Set", "Device already connected, ignoring Connected Set = true");
+                        LogMessage("Connected Set", $"Device already set to {value}, ignoring command: Connected Set = {value}");
                         return;
                     }
 
                     if (value)
                     {
+                        LogMessage("Connected Set", $"Connecting to device; uniqueId: {uniqueId}");
+                        TelescopeHardware.SetConnected(uniqueId, true);
+                        LogMessage("Connected Set", "Connected OK");
                         connectedState = true;
-                        LogMessage("Connected Set", "Connecting to device");
-                        TelescopeHardware.Connected = true;
                     }
                     else
                     {
                         connectedState = false;
-                        LogMessage("Connected Set", "Disconnecting from device");
-                        TelescopeHardware.Connected = false;
+                        LogMessage("Connected Set", "Disconnecting from device...");
+                        TelescopeHardware.SetConnected(uniqueId, false);
+                        LogMessage("Connected Set", "Disconnected OK");
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogMessage("Connected Set", $"Threw an exception: \r\n{ex}");
+                    LogMessage("Connected Set", $"Threw an exception: {ex.Message}\r\n{ex}");
                     throw;
                 }
             }
+        }
+
+        /// <summary>
+        /// Completion variable for the asynchronous Connect() and Disconnect()  methods
+        /// </summary>
+        public bool Connecting
+        {
+            get
+            {
+                return TelescopeHardware.Connecting;
+            }
+        }
+
+        /// <summary>
+        /// Disconnect from the device asynchronously using Connecting as the completion variable
+        /// </summary>
+        public void Disconnect()
+        {
+            try
+            {
+                if (!connectedState)
+                {
+                    LogMessage("Disconnect", "Device already disconnected, ignoring method");
+                    return;
+                }
+
+                LogMessage("Disconnect", "Calling Disconnect");
+                TelescopeHardware.Disconnect(uniqueId);
+                connectedState = false;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("Disconnect", $"Threw an exception: \r\n{ex}");
+                throw;
+            }
+            LogMessage("Disconnect", $"Completed OK");
         }
 
         /// <summary>
@@ -1124,6 +1193,46 @@ namespace ASCOM.TTS160.Telescope
                 catch (Exception ex)
                 {
                     LogMessage("DeclinationRate Set", $"Threw an exception: \r\n{ex}");
+                    throw;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Return the device's operational state in one call
+        /// </summary>
+        public IStateValueCollection DeviceState
+        {
+            get
+            {
+                try
+                {
+                    CheckConnected("DeviceState");
+
+                    // Create an array list to hold the IStateValue entries
+                    List<IStateValue> deviceState = new List<IStateValue>();
+
+                    // Add one entry for each operational state, if possible
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.Altitude), Altitude)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.AtHome), AtHome)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.AtPark), AtPark)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.Azimuth), Azimuth)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.Declination), Declination)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.IsPulseGuiding), IsPulseGuiding)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.RightAscension), RightAscension)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.SideOfPier), SideOfPier)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.SiderealTime), SiderealTime)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.Slewing), Slewing)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.Tracking), Tracking)); } catch { }
+                    try { deviceState.Add(new StateValue(nameof(ITelescopeV4.UTCDate), UTCDate)); } catch { }
+                    try { deviceState.Add(new StateValue(DateTime.Now)); } catch { }
+
+                    // Return the overall device state
+                    return new StateValueCollection(deviceState);
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeviceState", $"Threw an exception: {ex.Message}\r\n{ex}");
                     throw;
                 }
             }

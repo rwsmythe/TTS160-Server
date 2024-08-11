@@ -54,34 +54,47 @@
             this.textMaxDelta = new System.Windows.Forms.TextBox();
             this.radioButtonGuidingAlt = new System.Windows.Forms.RadioButton();
             this.radioButtonGuidingNone = new System.Windows.Forms.RadioButton();
-            this.groupBox1 = new System.Windows.Forms.GroupBox();
-            this.radioSolar = new System.Windows.Forms.RadioButton();
-            this.radioLunar = new System.Windows.Forms.RadioButton();
-            this.radioSidereal = new System.Windows.Forms.RadioButton();
             this.label10 = new System.Windows.Forms.Label();
             this.label11 = new System.Windows.Forms.Label();
             this.textBoxDriverSiteLat = new System.Windows.Forms.TextBox();
             this.textBoxDriverSiteLong = new System.Windows.Forms.TextBox();
             this.checkBoxDriverSiteOverride = new System.Windows.Forms.CheckBox();
             this.checkBoxPulseGuideTopoEqu = new System.Windows.Forms.CheckBox();
+            this.checkBoxPulseGuideDuration = new System.Windows.Forms.CheckBox();
+            this.tabControl1 = new System.Windows.Forms.TabControl();
+            this.tabPage1 = new System.Windows.Forms.TabPage();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.radioButtonGR4 = new System.Windows.Forms.RadioButton();
             this.radioButtonGR3 = new System.Windows.Forms.RadioButton();
             this.radioButtonGR2 = new System.Windows.Forms.RadioButton();
             this.radioButtonGR1 = new System.Windows.Forms.RadioButton();
             this.radioButtonGR0 = new System.Windows.Forms.RadioButton();
+            this.groupBox1 = new System.Windows.Forms.GroupBox();
+            this.radioSolar = new System.Windows.Forms.RadioButton();
+            this.radioLunar = new System.Windows.Forms.RadioButton();
+            this.radioSidereal = new System.Windows.Forms.RadioButton();
+            this.tabPage2 = new System.Windows.Forms.TabPage();
+            this.groupBox3 = new System.Windows.Forms.GroupBox();
+            this.checkBoxAlignonSync = new System.Windows.Forms.CheckBox();
+            this.radioButtonAlignonSync1 = new System.Windows.Forms.RadioButton();
+            this.radioButtonAlignonSync2 = new System.Windows.Forms.RadioButton();
+            this.radioButtonAlignonSync3 = new System.Windows.Forms.RadioButton();
             ((System.ComponentModel.ISupportInitialize)(this.picASCOM)).BeginInit();
             this.compatBox.SuspendLayout();
             this.groupGuideComp.SuspendLayout();
-            this.groupBox1.SuspendLayout();
+            this.tabControl1.SuspendLayout();
+            this.tabPage1.SuspendLayout();
             this.groupBox2.SuspendLayout();
+            this.groupBox1.SuspendLayout();
+            this.tabPage2.SuspendLayout();
+            this.groupBox3.SuspendLayout();
             this.SuspendLayout();
             // 
             // cmdOK
             // 
             this.cmdOK.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
             this.cmdOK.DialogResult = System.Windows.Forms.DialogResult.OK;
-            this.cmdOK.Location = new System.Drawing.Point(612, 361);
+            this.cmdOK.Location = new System.Drawing.Point(696, 386);
             this.cmdOK.Name = "cmdOK";
             this.cmdOK.Size = new System.Drawing.Size(59, 24);
             this.cmdOK.TabIndex = 0;
@@ -93,7 +106,7 @@
             // 
             this.cmdCancel.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
             this.cmdCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cmdCancel.Location = new System.Drawing.Point(612, 391);
+            this.cmdCancel.Location = new System.Drawing.Point(696, 416);
             this.cmdCancel.Name = "cmdCancel";
             this.cmdCancel.Size = new System.Drawing.Size(59, 25);
             this.cmdCancel.TabIndex = 1;
@@ -106,7 +119,7 @@
             this.picASCOM.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
             this.picASCOM.Cursor = System.Windows.Forms.Cursors.Hand;
             this.picASCOM.Image = ((System.Drawing.Image)(resources.GetObject("picASCOM.Image")));
-            this.picASCOM.Location = new System.Drawing.Point(623, 9);
+            this.picASCOM.Location = new System.Drawing.Point(707, 9);
             this.picASCOM.Name = "picASCOM";
             this.picASCOM.Size = new System.Drawing.Size(48, 56);
             this.picASCOM.SizeMode = System.Windows.Forms.PictureBoxSizeMode.AutoSize;
@@ -118,7 +131,7 @@
             // label2
             // 
             this.label2.AutoSize = true;
-            this.label2.Location = new System.Drawing.Point(13, 32);
+            this.label2.Location = new System.Drawing.Point(21, 25);
             this.label2.Name = "label2";
             this.label2.Size = new System.Drawing.Size(58, 13);
             this.label2.TabIndex = 5;
@@ -127,7 +140,7 @@
             // chkTrace
             // 
             this.chkTrace.AutoSize = true;
-            this.chkTrace.Location = new System.Drawing.Point(77, 60);
+            this.chkTrace.Location = new System.Drawing.Point(85, 53);
             this.chkTrace.Name = "chkTrace";
             this.chkTrace.Size = new System.Drawing.Size(69, 17);
             this.chkTrace.TabIndex = 6;
@@ -137,7 +150,7 @@
             // comboBoxComPort
             // 
             this.comboBoxComPort.FormattingEnabled = true;
-            this.comboBoxComPort.Location = new System.Drawing.Point(77, 29);
+            this.comboBoxComPort.Location = new System.Drawing.Point(85, 22);
             this.comboBoxComPort.Name = "comboBoxComPort";
             this.comboBoxComPort.Size = new System.Drawing.Size(90, 21);
             this.comboBoxComPort.TabIndex = 7;
@@ -145,7 +158,7 @@
             // label3
             // 
             this.label3.AutoSize = true;
-            this.label3.Location = new System.Drawing.Point(197, 29);
+            this.label3.Location = new System.Drawing.Point(205, 22);
             this.label3.Name = "label3";
             this.label3.Size = new System.Drawing.Size(80, 13);
             this.label3.TabIndex = 8;
@@ -154,7 +167,7 @@
             // label4
             // 
             this.label4.AutoSize = true;
-            this.label4.Location = new System.Drawing.Point(197, 61);
+            this.label4.Location = new System.Drawing.Point(205, 54);
             this.label4.Name = "label4";
             this.label4.Size = new System.Drawing.Size(120, 13);
             this.label4.TabIndex = 9;
@@ -164,7 +177,7 @@
             // SiteAltTxt
             // 
             this.SiteAltTxt.CharacterCasing = System.Windows.Forms.CharacterCasing.Lower;
-            this.SiteAltTxt.Location = new System.Drawing.Point(327, 26);
+            this.SiteAltTxt.Location = new System.Drawing.Point(335, 19);
             this.SiteAltTxt.Margin = new System.Windows.Forms.Padding(1);
             this.SiteAltTxt.Name = "SiteAltTxt";
             this.SiteAltTxt.Size = new System.Drawing.Size(103, 20);
@@ -176,7 +189,7 @@
             // SlewSetTimeTxt
             // 
             this.SlewSetTimeTxt.CharacterCasing = System.Windows.Forms.CharacterCasing.Lower;
-            this.SlewSetTimeTxt.Location = new System.Drawing.Point(327, 58);
+            this.SlewSetTimeTxt.Location = new System.Drawing.Point(335, 51);
             this.SlewSetTimeTxt.Margin = new System.Windows.Forms.Padding(1);
             this.SlewSetTimeTxt.Name = "SlewSetTimeTxt";
             this.SlewSetTimeTxt.Size = new System.Drawing.Size(103, 20);
@@ -188,7 +201,7 @@
             // label5
             // 
             this.label5.AutoSize = true;
-            this.label5.Location = new System.Drawing.Point(13, 117);
+            this.label5.Location = new System.Drawing.Point(21, 110);
             this.label5.Name = "label5";
             this.label5.Size = new System.Drawing.Size(99, 13);
             this.label5.TabIndex = 12;
@@ -197,7 +210,7 @@
             // label6
             // 
             this.label6.AutoSize = true;
-            this.label6.Location = new System.Drawing.Point(13, 139);
+            this.label6.Location = new System.Drawing.Point(21, 132);
             this.label6.Name = "label6";
             this.label6.Size = new System.Drawing.Size(108, 13);
             this.label6.TabIndex = 13;
@@ -208,7 +221,7 @@
             this.SiteLatlbl.AutoSize = true;
             this.SiteLatlbl.BackColor = System.Drawing.Color.White;
             this.SiteLatlbl.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
-            this.SiteLatlbl.Location = new System.Drawing.Point(155, 117);
+            this.SiteLatlbl.Location = new System.Drawing.Point(163, 110);
             this.SiteLatlbl.MinimumSize = new System.Drawing.Size(114, 13);
             this.SiteLatlbl.Name = "SiteLatlbl";
             this.SiteLatlbl.Size = new System.Drawing.Size(114, 15);
@@ -219,7 +232,7 @@
             this.SiteLonglbl.AutoSize = true;
             this.SiteLonglbl.BackColor = System.Drawing.Color.White;
             this.SiteLonglbl.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
-            this.SiteLonglbl.Location = new System.Drawing.Point(155, 139);
+            this.SiteLonglbl.Location = new System.Drawing.Point(163, 132);
             this.SiteLonglbl.MinimumSize = new System.Drawing.Size(114, 13);
             this.SiteLonglbl.Name = "SiteLonglbl";
             this.SiteLonglbl.Size = new System.Drawing.Size(114, 15);
@@ -229,7 +242,7 @@
             // 
             this.compatBox.Controls.Add(this.mpmBtn);
             this.compatBox.Controls.Add(this.noneBtn);
-            this.compatBox.Location = new System.Drawing.Point(16, 248);
+            this.compatBox.Location = new System.Drawing.Point(18, 17);
             this.compatBox.Margin = new System.Windows.Forms.Padding(1);
             this.compatBox.Name = "compatBox";
             this.compatBox.Padding = new System.Windows.Forms.Padding(1);
@@ -267,7 +280,7 @@
             this.TimeSyncChk.AutoSize = true;
             this.TimeSyncChk.Checked = true;
             this.TimeSyncChk.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.TimeSyncChk.Location = new System.Drawing.Point(15, 85);
+            this.TimeSyncChk.Location = new System.Drawing.Point(23, 78);
             this.TimeSyncChk.Margin = new System.Windows.Forms.Padding(1);
             this.TimeSyncChk.Name = "TimeSyncChk";
             this.TimeSyncChk.Size = new System.Drawing.Size(227, 17);
@@ -283,7 +296,7 @@
             this.groupGuideComp.Controls.Add(this.textMaxDelta);
             this.groupGuideComp.Controls.Add(this.radioButtonGuidingAlt);
             this.groupGuideComp.Controls.Add(this.radioButtonGuidingNone);
-            this.groupGuideComp.Location = new System.Drawing.Point(390, 93);
+            this.groupGuideComp.Location = new System.Drawing.Point(314, 69);
             this.groupGuideComp.Margin = new System.Windows.Forms.Padding(1);
             this.groupGuideComp.Name = "groupGuideComp";
             this.groupGuideComp.Padding = new System.Windows.Forms.Padding(1);
@@ -360,59 +373,10 @@
             this.radioButtonGuidingNone.Text = "None";
             this.radioButtonGuidingNone.UseVisualStyleBackColor = true;
             // 
-            // groupBox1
-            // 
-            this.groupBox1.Controls.Add(this.radioSolar);
-            this.groupBox1.Controls.Add(this.radioLunar);
-            this.groupBox1.Controls.Add(this.radioSidereal);
-            this.groupBox1.Location = new System.Drawing.Point(200, 248);
-            this.groupBox1.Margin = new System.Windows.Forms.Padding(1);
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Padding = new System.Windows.Forms.Padding(1);
-            this.groupBox1.Size = new System.Drawing.Size(157, 108);
-            this.groupBox1.TabIndex = 19;
-            this.groupBox1.TabStop = false;
-            this.groupBox1.Text = "Default Tracking Rate";
-            // 
-            // radioSolar
-            // 
-            this.radioSolar.AutoSize = true;
-            this.radioSolar.Location = new System.Drawing.Point(14, 74);
-            this.radioSolar.Margin = new System.Windows.Forms.Padding(1);
-            this.radioSolar.Name = "radioSolar";
-            this.radioSolar.Size = new System.Drawing.Size(49, 17);
-            this.radioSolar.TabIndex = 2;
-            this.radioSolar.Text = "Solar";
-            this.radioSolar.UseVisualStyleBackColor = true;
-            // 
-            // radioLunar
-            // 
-            this.radioLunar.AutoSize = true;
-            this.radioLunar.Location = new System.Drawing.Point(14, 52);
-            this.radioLunar.Margin = new System.Windows.Forms.Padding(1);
-            this.radioLunar.Name = "radioLunar";
-            this.radioLunar.Size = new System.Drawing.Size(52, 17);
-            this.radioLunar.TabIndex = 1;
-            this.radioLunar.Text = "Lunar";
-            this.radioLunar.UseVisualStyleBackColor = true;
-            // 
-            // radioSidereal
-            // 
-            this.radioSidereal.AutoSize = true;
-            this.radioSidereal.Checked = true;
-            this.radioSidereal.Location = new System.Drawing.Point(14, 28);
-            this.radioSidereal.Margin = new System.Windows.Forms.Padding(1);
-            this.radioSidereal.Name = "radioSidereal";
-            this.radioSidereal.Size = new System.Drawing.Size(63, 17);
-            this.radioSidereal.TabIndex = 0;
-            this.radioSidereal.TabStop = true;
-            this.radioSidereal.Text = "Sidereal";
-            this.radioSidereal.UseVisualStyleBackColor = true;
-            // 
             // label10
             // 
             this.label10.AutoSize = true;
-            this.label10.Location = new System.Drawing.Point(13, 197);
+            this.label10.Location = new System.Drawing.Point(12, 180);
             this.label10.Name = "label10";
             this.label10.Size = new System.Drawing.Size(106, 13);
             this.label10.TabIndex = 21;
@@ -421,7 +385,7 @@
             // label11
             // 
             this.label11.AutoSize = true;
-            this.label11.Location = new System.Drawing.Point(13, 175);
+            this.label11.Location = new System.Drawing.Point(12, 158);
             this.label11.Name = "label11";
             this.label11.Size = new System.Drawing.Size(97, 13);
             this.label11.TabIndex = 20;
@@ -429,14 +393,14 @@
             // 
             // textBoxDriverSiteLat
             // 
-            this.textBoxDriverSiteLat.Location = new System.Drawing.Point(155, 168);
+            this.textBoxDriverSiteLat.Location = new System.Drawing.Point(118, 151);
             this.textBoxDriverSiteLat.Name = "textBoxDriverSiteLat";
             this.textBoxDriverSiteLat.Size = new System.Drawing.Size(112, 20);
             this.textBoxDriverSiteLat.TabIndex = 22;
             // 
             // textBoxDriverSiteLong
             // 
-            this.textBoxDriverSiteLong.Location = new System.Drawing.Point(155, 192);
+            this.textBoxDriverSiteLong.Location = new System.Drawing.Point(118, 175);
             this.textBoxDriverSiteLong.Name = "textBoxDriverSiteLong";
             this.textBoxDriverSiteLong.Size = new System.Drawing.Size(112, 20);
             this.textBoxDriverSiteLong.TabIndex = 23;
@@ -444,7 +408,7 @@
             // checkBoxDriverSiteOverride
             // 
             this.checkBoxDriverSiteOverride.AutoSize = true;
-            this.checkBoxDriverSiteOverride.Location = new System.Drawing.Point(273, 178);
+            this.checkBoxDriverSiteOverride.Location = new System.Drawing.Point(68, 128);
             this.checkBoxDriverSiteOverride.Name = "checkBoxDriverSiteOverride";
             this.checkBoxDriverSiteOverride.Size = new System.Drawing.Size(111, 17);
             this.checkBoxDriverSiteOverride.TabIndex = 24;
@@ -454,12 +418,59 @@
             // checkBoxPulseGuideTopoEqu
             // 
             this.checkBoxPulseGuideTopoEqu.AutoSize = true;
-            this.checkBoxPulseGuideTopoEqu.Location = new System.Drawing.Point(390, 226);
+            this.checkBoxPulseGuideTopoEqu.Location = new System.Drawing.Point(314, 40);
             this.checkBoxPulseGuideTopoEqu.Name = "checkBoxPulseGuideTopoEqu";
             this.checkBoxPulseGuideTopoEqu.Size = new System.Drawing.Size(176, 17);
             this.checkBoxPulseGuideTopoEqu.TabIndex = 25;
             this.checkBoxPulseGuideTopoEqu.Text = "Pulse Guide in Equatorial Frame";
             this.checkBoxPulseGuideTopoEqu.UseVisualStyleBackColor = true;
+            this.checkBoxPulseGuideTopoEqu.CheckedChanged += new System.EventHandler(this.checkBoxPulseGuideTopoEqu_CheckedChanged);
+            // 
+            // checkBoxPulseGuideDuration
+            // 
+            this.checkBoxPulseGuideDuration.AutoSize = true;
+            this.checkBoxPulseGuideDuration.Location = new System.Drawing.Point(314, 17);
+            this.checkBoxPulseGuideDuration.Name = "checkBoxPulseGuideDuration";
+            this.checkBoxPulseGuideDuration.Size = new System.Drawing.Size(218, 17);
+            this.checkBoxPulseGuideDuration.TabIndex = 27;
+            this.checkBoxPulseGuideDuration.Text = "ASCOM Compliant PulseGuide Durations";
+            this.checkBoxPulseGuideDuration.UseVisualStyleBackColor = true;
+            // 
+            // tabControl1
+            // 
+            this.tabControl1.Controls.Add(this.tabPage1);
+            this.tabControl1.Controls.Add(this.tabPage2);
+            this.tabControl1.Location = new System.Drawing.Point(12, 17);
+            this.tabControl1.Name = "tabControl1";
+            this.tabControl1.SelectedIndex = 0;
+            this.tabControl1.Size = new System.Drawing.Size(643, 393);
+            this.tabControl1.TabIndex = 28;
+            this.tabControl1.Selecting += new System.Windows.Forms.TabControlCancelEventHandler(this.tabControl1_Selecting);
+            // 
+            // tabPage1
+            // 
+            this.tabPage1.Controls.Add(this.groupBox3);
+            this.tabPage1.Controls.Add(this.groupBox2);
+            this.tabPage1.Controls.Add(this.groupBox1);
+            this.tabPage1.Controls.Add(this.label2);
+            this.tabPage1.Controls.Add(this.chkTrace);
+            this.tabPage1.Controls.Add(this.comboBoxComPort);
+            this.tabPage1.Controls.Add(this.label3);
+            this.tabPage1.Controls.Add(this.label4);
+            this.tabPage1.Controls.Add(this.SiteAltTxt);
+            this.tabPage1.Controls.Add(this.SlewSetTimeTxt);
+            this.tabPage1.Controls.Add(this.label5);
+            this.tabPage1.Controls.Add(this.label6);
+            this.tabPage1.Controls.Add(this.SiteLatlbl);
+            this.tabPage1.Controls.Add(this.SiteLonglbl);
+            this.tabPage1.Controls.Add(this.TimeSyncChk);
+            this.tabPage1.Location = new System.Drawing.Point(4, 22);
+            this.tabPage1.Name = "tabPage1";
+            this.tabPage1.Padding = new System.Windows.Forms.Padding(3);
+            this.tabPage1.Size = new System.Drawing.Size(635, 367);
+            this.tabPage1.TabIndex = 0;
+            this.tabPage1.Text = "Basic";
+            this.tabPage1.UseVisualStyleBackColor = true;
             // 
             // groupBox2
             // 
@@ -468,12 +479,12 @@
             this.groupBox2.Controls.Add(this.radioButtonGR2);
             this.groupBox2.Controls.Add(this.radioButtonGR1);
             this.groupBox2.Controls.Add(this.radioButtonGR0);
-            this.groupBox2.Location = new System.Drawing.Point(390, 260);
+            this.groupBox2.Location = new System.Drawing.Point(163, 155);
             this.groupBox2.Name = "groupBox2";
             this.groupBox2.Size = new System.Drawing.Size(212, 152);
-            this.groupBox2.TabIndex = 26;
+            this.groupBox2.TabIndex = 27;
             this.groupBox2.TabStop = false;
-            this.groupBox2.Text = "HC Guide Rate";
+            this.groupBox2.Text = "Handpad Guide Rate";
             // 
             // radioButtonGR4
             // 
@@ -527,33 +538,137 @@
             this.radioButtonGR0.Text = "1 arc-sec/sec";
             this.radioButtonGR0.UseVisualStyleBackColor = true;
             // 
+            // groupBox1
+            // 
+            this.groupBox1.Controls.Add(this.radioSolar);
+            this.groupBox1.Controls.Add(this.radioLunar);
+            this.groupBox1.Controls.Add(this.radioSidereal);
+            this.groupBox1.Location = new System.Drawing.Point(28, 199);
+            this.groupBox1.Margin = new System.Windows.Forms.Padding(1);
+            this.groupBox1.Name = "groupBox1";
+            this.groupBox1.Padding = new System.Windows.Forms.Padding(1);
+            this.groupBox1.Size = new System.Drawing.Size(126, 108);
+            this.groupBox1.TabIndex = 20;
+            this.groupBox1.TabStop = false;
+            this.groupBox1.Text = "Handpad Tracking Rate";
+            // 
+            // radioSolar
+            // 
+            this.radioSolar.AutoSize = true;
+            this.radioSolar.Location = new System.Drawing.Point(14, 74);
+            this.radioSolar.Margin = new System.Windows.Forms.Padding(1);
+            this.radioSolar.Name = "radioSolar";
+            this.radioSolar.Size = new System.Drawing.Size(49, 17);
+            this.radioSolar.TabIndex = 2;
+            this.radioSolar.Text = "Solar";
+            this.radioSolar.UseVisualStyleBackColor = true;
+            // 
+            // radioLunar
+            // 
+            this.radioLunar.AutoSize = true;
+            this.radioLunar.Location = new System.Drawing.Point(14, 52);
+            this.radioLunar.Margin = new System.Windows.Forms.Padding(1);
+            this.radioLunar.Name = "radioLunar";
+            this.radioLunar.Size = new System.Drawing.Size(52, 17);
+            this.radioLunar.TabIndex = 1;
+            this.radioLunar.Text = "Lunar";
+            this.radioLunar.UseVisualStyleBackColor = true;
+            // 
+            // radioSidereal
+            // 
+            this.radioSidereal.AutoSize = true;
+            this.radioSidereal.Checked = true;
+            this.radioSidereal.Location = new System.Drawing.Point(14, 28);
+            this.radioSidereal.Margin = new System.Windows.Forms.Padding(1);
+            this.radioSidereal.Name = "radioSidereal";
+            this.radioSidereal.Size = new System.Drawing.Size(63, 17);
+            this.radioSidereal.TabIndex = 0;
+            this.radioSidereal.TabStop = true;
+            this.radioSidereal.Text = "Sidereal";
+            this.radioSidereal.UseVisualStyleBackColor = true;
+            // 
+            // tabPage2
+            // 
+            this.tabPage2.Controls.Add(this.label11);
+            this.tabPage2.Controls.Add(this.checkBoxPulseGuideDuration);
+            this.tabPage2.Controls.Add(this.compatBox);
+            this.tabPage2.Controls.Add(this.checkBoxPulseGuideTopoEqu);
+            this.tabPage2.Controls.Add(this.label10);
+            this.tabPage2.Controls.Add(this.groupGuideComp);
+            this.tabPage2.Controls.Add(this.checkBoxDriverSiteOverride);
+            this.tabPage2.Controls.Add(this.textBoxDriverSiteLat);
+            this.tabPage2.Controls.Add(this.textBoxDriverSiteLong);
+            this.tabPage2.Location = new System.Drawing.Point(4, 22);
+            this.tabPage2.Name = "tabPage2";
+            this.tabPage2.Padding = new System.Windows.Forms.Padding(3);
+            this.tabPage2.Size = new System.Drawing.Size(548, 367);
+            this.tabPage2.TabIndex = 1;
+            this.tabPage2.Text = "Developer";
+            this.tabPage2.UseVisualStyleBackColor = true;
+            // 
+            // groupBox3
+            // 
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync3);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync2);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync1);
+            this.groupBox3.Controls.Add(this.checkBoxAlignonSync);
+            this.groupBox3.Location = new System.Drawing.Point(412, 160);
+            this.groupBox3.Name = "groupBox3";
+            this.groupBox3.Size = new System.Drawing.Size(190, 146);
+            this.groupBox3.TabIndex = 28;
+            this.groupBox3.TabStop = false;
+            this.groupBox3.Text = "Align on Sync Mode";
+            // 
+            // checkBoxAlignonSync
+            // 
+            this.checkBoxAlignonSync.AutoSize = true;
+            this.checkBoxAlignonSync.Location = new System.Drawing.Point(16, 42);
+            this.checkBoxAlignonSync.Name = "checkBoxAlignonSync";
+            this.checkBoxAlignonSync.Size = new System.Drawing.Size(59, 17);
+            this.checkBoxAlignonSync.TabIndex = 0;
+            this.checkBoxAlignonSync.Text = "Enable";
+            this.checkBoxAlignonSync.UseVisualStyleBackColor = true;
+            this.checkBoxAlignonSync.CheckedChanged += new System.EventHandler(this.checkBoxAlignonSync_CheckedChanged);
+            // 
+            // radioButtonAlignonSync1
+            // 
+            this.radioButtonAlignonSync1.AutoSize = true;
+            this.radioButtonAlignonSync1.Location = new System.Drawing.Point(16, 75);
+            this.radioButtonAlignonSync1.Name = "radioButtonAlignonSync1";
+            this.radioButtonAlignonSync1.Size = new System.Drawing.Size(107, 17);
+            this.radioButtonAlignonSync1.TabIndex = 1;
+            this.radioButtonAlignonSync1.Text = "1 Alignment Point";
+            this.radioButtonAlignonSync1.UseVisualStyleBackColor = true;
+            this.radioButtonAlignonSync1.CheckedChanged += new System.EventHandler(this.radioButtonAlignonSync1_CheckedChanged);
+            // 
+            // radioButtonAlignonSync2
+            // 
+            this.radioButtonAlignonSync2.AutoSize = true;
+            this.radioButtonAlignonSync2.Checked = true;
+            this.radioButtonAlignonSync2.Location = new System.Drawing.Point(16, 93);
+            this.radioButtonAlignonSync2.Name = "radioButtonAlignonSync2";
+            this.radioButtonAlignonSync2.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync2.TabIndex = 2;
+            this.radioButtonAlignonSync2.TabStop = true;
+            this.radioButtonAlignonSync2.Text = "2 Alignment Points";
+            this.radioButtonAlignonSync2.UseVisualStyleBackColor = true;
+            // 
+            // radioButtonAlignonSync3
+            // 
+            this.radioButtonAlignonSync3.AutoSize = true;
+            this.radioButtonAlignonSync3.Location = new System.Drawing.Point(16, 113);
+            this.radioButtonAlignonSync3.Name = "radioButtonAlignonSync3";
+            this.radioButtonAlignonSync3.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync3.TabIndex = 3;
+            this.radioButtonAlignonSync3.Text = "3 Alignment Points";
+            this.radioButtonAlignonSync3.UseVisualStyleBackColor = true;
+            // 
             // SetupDialogForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(681, 424);
-            this.Controls.Add(this.groupBox2);
-            this.Controls.Add(this.checkBoxPulseGuideTopoEqu);
-            this.Controls.Add(this.checkBoxDriverSiteOverride);
-            this.Controls.Add(this.textBoxDriverSiteLong);
-            this.Controls.Add(this.textBoxDriverSiteLat);
-            this.Controls.Add(this.label10);
-            this.Controls.Add(this.label11);
-            this.Controls.Add(this.groupBox1);
-            this.Controls.Add(this.groupGuideComp);
-            this.Controls.Add(this.TimeSyncChk);
-            this.Controls.Add(this.compatBox);
-            this.Controls.Add(this.SiteLonglbl);
-            this.Controls.Add(this.SiteLatlbl);
-            this.Controls.Add(this.label6);
-            this.Controls.Add(this.label5);
-            this.Controls.Add(this.SlewSetTimeTxt);
-            this.Controls.Add(this.SiteAltTxt);
-            this.Controls.Add(this.label4);
-            this.Controls.Add(this.label3);
-            this.Controls.Add(this.comboBoxComPort);
-            this.Controls.Add(this.chkTrace);
-            this.Controls.Add(this.label2);
+            this.ClientSize = new System.Drawing.Size(765, 449);
+            this.Controls.Add(this.tabControl1);
             this.Controls.Add(this.picASCOM);
             this.Controls.Add(this.cmdCancel);
             this.Controls.Add(this.cmdOK);
@@ -570,10 +685,17 @@
             this.compatBox.PerformLayout();
             this.groupGuideComp.ResumeLayout(false);
             this.groupGuideComp.PerformLayout();
-            this.groupBox1.ResumeLayout(false);
-            this.groupBox1.PerformLayout();
+            this.tabControl1.ResumeLayout(false);
+            this.tabPage1.ResumeLayout(false);
+            this.tabPage1.PerformLayout();
             this.groupBox2.ResumeLayout(false);
             this.groupBox2.PerformLayout();
+            this.groupBox1.ResumeLayout(false);
+            this.groupBox1.PerformLayout();
+            this.tabPage2.ResumeLayout(false);
+            this.tabPage2.PerformLayout();
+            this.groupBox3.ResumeLayout(false);
+            this.groupBox3.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -606,21 +728,30 @@
         private System.Windows.Forms.Label label1;
         private System.Windows.Forms.TextBox textBuffer;
         private System.Windows.Forms.TextBox textMaxDelta;
-        private System.Windows.Forms.GroupBox groupBox1;
-        private System.Windows.Forms.RadioButton radioSolar;
-        private System.Windows.Forms.RadioButton radioLunar;
-        private System.Windows.Forms.RadioButton radioSidereal;
         private System.Windows.Forms.Label label10;
         private System.Windows.Forms.Label label11;
         private System.Windows.Forms.TextBox textBoxDriverSiteLat;
         private System.Windows.Forms.TextBox textBoxDriverSiteLong;
         private System.Windows.Forms.CheckBox checkBoxDriverSiteOverride;
         private System.Windows.Forms.CheckBox checkBoxPulseGuideTopoEqu;
+        private System.Windows.Forms.CheckBox checkBoxPulseGuideDuration;
+        private System.Windows.Forms.TabControl tabControl1;
+        private System.Windows.Forms.TabPage tabPage1;
+        private System.Windows.Forms.TabPage tabPage2;
         private System.Windows.Forms.GroupBox groupBox2;
         private System.Windows.Forms.RadioButton radioButtonGR4;
         private System.Windows.Forms.RadioButton radioButtonGR3;
         private System.Windows.Forms.RadioButton radioButtonGR2;
         private System.Windows.Forms.RadioButton radioButtonGR1;
         private System.Windows.Forms.RadioButton radioButtonGR0;
+        private System.Windows.Forms.GroupBox groupBox1;
+        private System.Windows.Forms.RadioButton radioSolar;
+        private System.Windows.Forms.RadioButton radioLunar;
+        private System.Windows.Forms.RadioButton radioSidereal;
+        private System.Windows.Forms.GroupBox groupBox3;
+        private System.Windows.Forms.CheckBox checkBoxAlignonSync;
+        private System.Windows.Forms.RadioButton radioButtonAlignonSync3;
+        private System.Windows.Forms.RadioButton radioButtonAlignonSync2;
+        private System.Windows.Forms.RadioButton radioButtonAlignonSync1;
     }
 }

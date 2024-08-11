@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -27,6 +28,9 @@ namespace ASCOM.TTS160
         public double DriverSiteLatitude { get; set; }
         public double DriverSiteLongitude { get; set; }
         public int HCGuideRate { get; set; }
+        public bool PulseGuideDurationCompliant { get; set; }
+        public bool AlignOnSyncEnabled { get; set; }
+        public int AlignOnSyncPoints { get; set; }
             
     }
 }

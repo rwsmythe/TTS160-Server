@@ -12,7 +12,9 @@
 
 using ASCOM.Utilities;
 using ASCOM.TTS160.Telescope;
-using System.Windows.Forms;
+using System.Threading;
+using System.Diagnostics;
+using System;
 
 namespace ASCOM.LocalServer
 {
@@ -31,8 +33,10 @@ namespace ASCOM.LocalServer
         private static readonly object lockObject = new object();
 
         // Shared serial port. This will allow multiple drivers to use one single serial port.
-        private static Serial sharedSerial = new Serial();      // Shared serial port
+        private static readonly Serial sharedSerial = new Serial();      // Shared serial port
         private static int serialConnectionCount = 0;     // counter for the number of connections to the serial port
+        private static readonly int RECEIVETIMEOUT = 500;  //Reduce serial timeout to 0.5 seconds from 5.
+        private static readonly Stopwatch stopwatch = new Stopwatch();
         // Public access to shared resources
 
         #region Dispose method to clean up resources before close
@@ -57,6 +61,7 @@ namespace ASCOM.LocalServer
                 {
                     sharedSerial.Dispose();
                 }
+
             }
             catch
             {
@@ -118,35 +123,85 @@ namespace ASCOM.LocalServer
                 SharedSerial.ClearBuffers();
                 SharedSerial.Transmit(command);
 
-                switch (commandtype)
+                try
                 {
-                    case 0:
-                        TelescopeHardware.LogMessage("SendMessage", $"Blind - {command} Completed.");
-                        return "";
+                    switch (commandtype)
+                    {
+                        case 0:
+                            TelescopeHardware.LogMessage("SendMessage", $"Blind - {command} Completed.");
+                            Thread.Sleep(10); //Add a bit of waiting, equivalent to the waits from the receive methods
+                            return "";
 
-                    case 1:
-                        var result = SharedSerial.ReceiveCounted(1);
-                        bool retBool = char.GetNumericValue(result[0]) == 1; // Parse the returned string and create a boolean True / False value
-                                                                             //serialPort.ClearBuffers();
-                        TelescopeHardware.LogMessage("SendMessage", $"Bool - {command} Completed: {result} Parsed as: {retBool}");
-                        if (retBool && command.Equals(":MS#"))
-                        {
+                        case 1:
+                            stopwatch.Start();
+                            var result = SharedSerial.ReceiveCounted(1);
+                            stopwatch.Stop();
+                            TelescopeHardware.LogMessage("SendMessage", $"Receive Bool execution time: {stopwatch.ElapsedMilliseconds}");
+                            stopwatch.Reset();
 
-                            var clrbuf = SharedSerial.ReceiveTerminated("#");
-                            TelescopeHardware.LogMessage("SendMessage", $"Bool - Dumping String: {clrbuf}");
+                            bool retBool = char.GetNumericValue(result[0]) == 1; // Parse the returned string and create a boolean True / False value
+                                                                                 //serialPort.ClearBuffers();
+                            TelescopeHardware.LogMessage("SendMessage", $"Bool - {command} Completed: {result} Parsed as: {retBool}");
+                            if (retBool && command.Equals(":MS#"))
+                            {
 
-                        }
-                        return retBool.ToString(); // Return the boolean value to the client
+                                var clrbuf = SharedSerial.ReceiveTerminated("#");
+                                TelescopeHardware.LogMessage("SendMessage", $"Bool - Dumping String: {clrbuf}");
 
-                    case 2:
-                        string resp = SharedSerial.ReceiveTerminated("#");
-                        TelescopeHardware.LogMessage("SendMessage", $"String - {command} Completed: {resp}");
-                        return resp;
+                            }
+                            return retBool.ToString(); // Return the boolean value to the client
+
+                        case 2:
+
+                            stopwatch.Start();
+                            string resp = SharedSerial.ReceiveTerminated("#");
+                            stopwatch.Stop();
+                            TelescopeHardware.LogMessage("SendMessage", $"Receive String execution time: {stopwatch.ElapsedMilliseconds}");
+                            stopwatch.Reset();
+                            TelescopeHardware.LogMessage("SendMessage", $"String - {command} Completed: {resp}");
+                            return resp;
+                    }
+                    return "";
                 }
-                
-                //SharedSerial.ClearBuffers();
-                return "";
+                catch (Exception ex)
+                {
 
+                    TelescopeHardware.LogMessage("SendMessage", ex.Message);
+                    throw ex;
+                }
+
+            }
+        }
+
+        public static void ClearReTxBuff()
+        {
+            lock(lockObject)
+            {
+                try
+                {
+                    SharedSerial.ClearBuffers();
+                    bool looper = true;
+                    int iter = 0;
+                    while(looper)
+                    {
+                        TelescopeHardware.LogMessage("ClearReTxBuff", $"Clearing Buffer.  Iteration: {iter}");
+                        try
+                        {
+                            var buff = SharedSerial.Receive();
+                        }
+                        catch
+                        {
+                            looper = false;
+                        }
+                        
+                        iter += 1;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TelescopeHardware.LogMessage("ClearReTxBuff", $"Error: {ex.Message}");
+                }
+                    
             }
         }
 
@@ -172,16 +227,17 @@ namespace ASCOM.LocalServer
                             SharedSerial.Parity = SerialParity.None;
                             SharedSerial.DataBits = 8;
                             SharedSerial.StopBits = SerialStopBits.One;
+                            SharedSerial.ReceiveTimeoutMs = RECEIVETIMEOUT;
                             SharedSerial.Connected = true;
 
                         }
                         serialConnectionCount++;
-                        TelescopeHardware.LogMessage("Connected set", $"Connection count: {serialConnectionCount}");
+                        TelescopeHardware.LogMessage("SharedResources Connected Set", $"Connection count: {serialConnectionCount}");
                     }
                     else
                     {
                         serialConnectionCount--;
-                        TelescopeHardware.LogMessage("Connected set", $"Disconnected.  Connections remaining: {serialConnectionCount}");
+                        TelescopeHardware.LogMessage("SharedResources Connected Set", $"Disconnected.  Connections remaining: {serialConnectionCount}");
                         if (serialConnectionCount <= 0)
                         {
                             SharedSerial.Connected = false;            

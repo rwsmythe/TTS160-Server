@@ -26,9 +26,10 @@ using System.Windows.Forms;
 
 namespace ASCOM.LocalServer
 {
+    
     public static class Server
     {
-
+        
         #region Variables
 
         private static uint mainThreadId; // Stores the main thread's thread id.
@@ -38,7 +39,7 @@ namespace ASCOM.LocalServer
         private static int serverLockCount; // Keeps a lock count on this application.
         private static ArrayList driverTypes; // Served COM object types
         private static ArrayList classFactories; // Served COM object class factories
-        private static string localServerAppId = "{917741ea-e51d-42d5-99b6-54f7ea37420a}"; // Our AppId
+        private static string localServerAppId = "{3eb4a107-e8d7-4a8e-9c77-fc637cd710ae}"; // Our AppId
         private static readonly Object lockObject = new object(); // Counter lock object
         private static TraceLogger TL; // TraceLogger for the local server (not the served driver, which has its own) - primarily to help debug local server issues
         private static Task GCTask; // The garbage collection task
@@ -716,5 +717,7 @@ namespace ASCOM.LocalServer
         static extern uint GetCurrentThreadId();
 
         #endregion
+        
     }
+        
 }
