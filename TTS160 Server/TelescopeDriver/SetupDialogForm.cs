@@ -434,6 +434,46 @@ namespace ASCOM.TTS160
         {
 
         }
+
+        private void buttonFindMount_Click(object sender, EventArgs e)
+        {
+
+            Serial serial = new Serial();
+
+            serial.Speed = SerialSpeed.ps9600;
+            serial.Parity = SerialParity.None;
+            serial.DataBits = 8;
+            serial.StopBits = SerialStopBits.One;
+            serial.ReceiveTimeoutMs = 200;
+
+            foreach (var port in comboBoxComPort.Items )
+            {
+
+                try
+                {
+                    serial.PortName = port.ToString();
+                    serial.Connected = true;
+                    serial.ClearBuffers();
+                    serial.Transmit(":GVP#");
+                    string resp = serial.ReceiveTerminated("#").TrimEnd('#');
+                    if( resp.Equals("TTS-160 Panther"))
+                    {
+                        serial.Connected = false;
+                        comboBoxComPort.SelectedItem = port;
+                        labelMountDetect.Text = port.ToString();
+                        return;
+                    }
+
+                }
+                catch
+                {
+                    serial.Connected = false;
+                    continue;
+                }
+
+            }
+            labelMountDetect.Text = "Not Detected";
+        }
     }
 
 }

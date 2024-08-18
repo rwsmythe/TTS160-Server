@@ -63,6 +63,11 @@
             this.checkBoxPulseGuideDuration = new System.Windows.Forms.CheckBox();
             this.tabControl1 = new System.Windows.Forms.TabControl();
             this.tabPage1 = new System.Windows.Forms.TabPage();
+            this.groupBox3 = new System.Windows.Forms.GroupBox();
+            this.radioButtonAlignonSync3 = new System.Windows.Forms.RadioButton();
+            this.radioButtonAlignonSync2 = new System.Windows.Forms.RadioButton();
+            this.radioButtonAlignonSync1 = new System.Windows.Forms.RadioButton();
+            this.checkBoxAlignonSync = new System.Windows.Forms.CheckBox();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.radioButtonGR4 = new System.Windows.Forms.RadioButton();
             this.radioButtonGR3 = new System.Windows.Forms.RadioButton();
@@ -74,20 +79,17 @@
             this.radioLunar = new System.Windows.Forms.RadioButton();
             this.radioSidereal = new System.Windows.Forms.RadioButton();
             this.tabPage2 = new System.Windows.Forms.TabPage();
-            this.groupBox3 = new System.Windows.Forms.GroupBox();
-            this.checkBoxAlignonSync = new System.Windows.Forms.CheckBox();
-            this.radioButtonAlignonSync1 = new System.Windows.Forms.RadioButton();
-            this.radioButtonAlignonSync2 = new System.Windows.Forms.RadioButton();
-            this.radioButtonAlignonSync3 = new System.Windows.Forms.RadioButton();
+            this.buttonFindMount = new System.Windows.Forms.Button();
+            this.labelMountDetect = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)(this.picASCOM)).BeginInit();
             this.compatBox.SuspendLayout();
             this.groupGuideComp.SuspendLayout();
             this.tabControl1.SuspendLayout();
             this.tabPage1.SuspendLayout();
+            this.groupBox3.SuspendLayout();
             this.groupBox2.SuspendLayout();
             this.groupBox1.SuspendLayout();
             this.tabPage2.SuspendLayout();
-            this.groupBox3.SuspendLayout();
             this.SuspendLayout();
             // 
             // cmdOK
@@ -140,7 +142,7 @@
             // chkTrace
             // 
             this.chkTrace.AutoSize = true;
-            this.chkTrace.Location = new System.Drawing.Point(85, 53);
+            this.chkTrace.Location = new System.Drawing.Point(20, 81);
             this.chkTrace.Name = "chkTrace";
             this.chkTrace.Size = new System.Drawing.Size(69, 17);
             this.chkTrace.TabIndex = 6;
@@ -194,7 +196,7 @@
             this.SlewSetTimeTxt.Name = "SlewSetTimeTxt";
             this.SlewSetTimeTxt.Size = new System.Drawing.Size(103, 20);
             this.SlewSetTimeTxt.TabIndex = 11;
-            this.SlewSetTimeTxt.Text = "2";
+            this.SlewSetTimeTxt.Text = "1";
             this.SlewSetTimeTxt.TextAlign = System.Windows.Forms.HorizontalAlignment.Right;
             this.SlewSetTimeTxt.TextChanged += new System.EventHandler(this.SlewSetTimeTxt_TextChanged);
             // 
@@ -280,7 +282,7 @@
             this.TimeSyncChk.AutoSize = true;
             this.TimeSyncChk.Checked = true;
             this.TimeSyncChk.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.TimeSyncChk.Location = new System.Drawing.Point(23, 78);
+            this.TimeSyncChk.Location = new System.Drawing.Point(28, 326);
             this.TimeSyncChk.Margin = new System.Windows.Forms.Padding(1);
             this.TimeSyncChk.Name = "TimeSyncChk";
             this.TimeSyncChk.Size = new System.Drawing.Size(227, 17);
@@ -449,6 +451,8 @@
             // 
             // tabPage1
             // 
+            this.tabPage1.Controls.Add(this.labelMountDetect);
+            this.tabPage1.Controls.Add(this.buttonFindMount);
             this.tabPage1.Controls.Add(this.groupBox3);
             this.tabPage1.Controls.Add(this.groupBox2);
             this.tabPage1.Controls.Add(this.groupBox1);
@@ -471,6 +475,63 @@
             this.tabPage1.TabIndex = 0;
             this.tabPage1.Text = "Basic";
             this.tabPage1.UseVisualStyleBackColor = true;
+            // 
+            // groupBox3
+            // 
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync3);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync2);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync1);
+            this.groupBox3.Controls.Add(this.checkBoxAlignonSync);
+            this.groupBox3.Location = new System.Drawing.Point(412, 160);
+            this.groupBox3.Name = "groupBox3";
+            this.groupBox3.Size = new System.Drawing.Size(190, 146);
+            this.groupBox3.TabIndex = 28;
+            this.groupBox3.TabStop = false;
+            this.groupBox3.Text = "Align on Sync Mode";
+            // 
+            // radioButtonAlignonSync3
+            // 
+            this.radioButtonAlignonSync3.AutoSize = true;
+            this.radioButtonAlignonSync3.Location = new System.Drawing.Point(16, 113);
+            this.radioButtonAlignonSync3.Name = "radioButtonAlignonSync3";
+            this.radioButtonAlignonSync3.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync3.TabIndex = 3;
+            this.radioButtonAlignonSync3.Text = "3 Alignment Points";
+            this.radioButtonAlignonSync3.UseVisualStyleBackColor = true;
+            // 
+            // radioButtonAlignonSync2
+            // 
+            this.radioButtonAlignonSync2.AutoSize = true;
+            this.radioButtonAlignonSync2.Checked = true;
+            this.radioButtonAlignonSync2.Location = new System.Drawing.Point(16, 93);
+            this.radioButtonAlignonSync2.Name = "radioButtonAlignonSync2";
+            this.radioButtonAlignonSync2.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync2.TabIndex = 2;
+            this.radioButtonAlignonSync2.TabStop = true;
+            this.radioButtonAlignonSync2.Text = "2 Alignment Points";
+            this.radioButtonAlignonSync2.UseVisualStyleBackColor = true;
+            // 
+            // radioButtonAlignonSync1
+            // 
+            this.radioButtonAlignonSync1.AutoSize = true;
+            this.radioButtonAlignonSync1.Location = new System.Drawing.Point(16, 75);
+            this.radioButtonAlignonSync1.Name = "radioButtonAlignonSync1";
+            this.radioButtonAlignonSync1.Size = new System.Drawing.Size(107, 17);
+            this.radioButtonAlignonSync1.TabIndex = 1;
+            this.radioButtonAlignonSync1.Text = "1 Alignment Point";
+            this.radioButtonAlignonSync1.UseVisualStyleBackColor = true;
+            this.radioButtonAlignonSync1.CheckedChanged += new System.EventHandler(this.radioButtonAlignonSync1_CheckedChanged);
+            // 
+            // checkBoxAlignonSync
+            // 
+            this.checkBoxAlignonSync.AutoSize = true;
+            this.checkBoxAlignonSync.Location = new System.Drawing.Point(16, 42);
+            this.checkBoxAlignonSync.Name = "checkBoxAlignonSync";
+            this.checkBoxAlignonSync.Size = new System.Drawing.Size(59, 17);
+            this.checkBoxAlignonSync.TabIndex = 0;
+            this.checkBoxAlignonSync.Text = "Enable";
+            this.checkBoxAlignonSync.UseVisualStyleBackColor = true;
+            this.checkBoxAlignonSync.CheckedChanged += new System.EventHandler(this.checkBoxAlignonSync_CheckedChanged);
             // 
             // groupBox2
             // 
@@ -601,67 +662,30 @@
             this.tabPage2.Location = new System.Drawing.Point(4, 22);
             this.tabPage2.Name = "tabPage2";
             this.tabPage2.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPage2.Size = new System.Drawing.Size(548, 367);
+            this.tabPage2.Size = new System.Drawing.Size(635, 367);
             this.tabPage2.TabIndex = 1;
             this.tabPage2.Text = "Developer";
             this.tabPage2.UseVisualStyleBackColor = true;
             // 
-            // groupBox3
+            // buttonFindMount
             // 
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync3);
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync2);
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync1);
-            this.groupBox3.Controls.Add(this.checkBoxAlignonSync);
-            this.groupBox3.Location = new System.Drawing.Point(412, 160);
-            this.groupBox3.Name = "groupBox3";
-            this.groupBox3.Size = new System.Drawing.Size(190, 146);
-            this.groupBox3.TabIndex = 28;
-            this.groupBox3.TabStop = false;
-            this.groupBox3.Text = "Align on Sync Mode";
+            this.buttonFindMount.Location = new System.Drawing.Point(16, 49);
+            this.buttonFindMount.Name = "buttonFindMount";
+            this.buttonFindMount.Size = new System.Drawing.Size(75, 21);
+            this.buttonFindMount.TabIndex = 29;
+            this.buttonFindMount.Text = "Find Mount";
+            this.buttonFindMount.UseVisualStyleBackColor = true;
+            this.buttonFindMount.Click += new System.EventHandler(this.buttonFindMount_Click);
             // 
-            // checkBoxAlignonSync
+            // labelMountDetect
             // 
-            this.checkBoxAlignonSync.AutoSize = true;
-            this.checkBoxAlignonSync.Location = new System.Drawing.Point(16, 42);
-            this.checkBoxAlignonSync.Name = "checkBoxAlignonSync";
-            this.checkBoxAlignonSync.Size = new System.Drawing.Size(59, 17);
-            this.checkBoxAlignonSync.TabIndex = 0;
-            this.checkBoxAlignonSync.Text = "Enable";
-            this.checkBoxAlignonSync.UseVisualStyleBackColor = true;
-            this.checkBoxAlignonSync.CheckedChanged += new System.EventHandler(this.checkBoxAlignonSync_CheckedChanged);
-            // 
-            // radioButtonAlignonSync1
-            // 
-            this.radioButtonAlignonSync1.AutoSize = true;
-            this.radioButtonAlignonSync1.Location = new System.Drawing.Point(16, 75);
-            this.radioButtonAlignonSync1.Name = "radioButtonAlignonSync1";
-            this.radioButtonAlignonSync1.Size = new System.Drawing.Size(107, 17);
-            this.radioButtonAlignonSync1.TabIndex = 1;
-            this.radioButtonAlignonSync1.Text = "1 Alignment Point";
-            this.radioButtonAlignonSync1.UseVisualStyleBackColor = true;
-            this.radioButtonAlignonSync1.CheckedChanged += new System.EventHandler(this.radioButtonAlignonSync1_CheckedChanged);
-            // 
-            // radioButtonAlignonSync2
-            // 
-            this.radioButtonAlignonSync2.AutoSize = true;
-            this.radioButtonAlignonSync2.Checked = true;
-            this.radioButtonAlignonSync2.Location = new System.Drawing.Point(16, 93);
-            this.radioButtonAlignonSync2.Name = "radioButtonAlignonSync2";
-            this.radioButtonAlignonSync2.Size = new System.Drawing.Size(112, 17);
-            this.radioButtonAlignonSync2.TabIndex = 2;
-            this.radioButtonAlignonSync2.TabStop = true;
-            this.radioButtonAlignonSync2.Text = "2 Alignment Points";
-            this.radioButtonAlignonSync2.UseVisualStyleBackColor = true;
-            // 
-            // radioButtonAlignonSync3
-            // 
-            this.radioButtonAlignonSync3.AutoSize = true;
-            this.radioButtonAlignonSync3.Location = new System.Drawing.Point(16, 113);
-            this.radioButtonAlignonSync3.Name = "radioButtonAlignonSync3";
-            this.radioButtonAlignonSync3.Size = new System.Drawing.Size(112, 17);
-            this.radioButtonAlignonSync3.TabIndex = 3;
-            this.radioButtonAlignonSync3.Text = "3 Alignment Points";
-            this.radioButtonAlignonSync3.UseVisualStyleBackColor = true;
+            this.labelMountDetect.AutoSize = true;
+            this.labelMountDetect.BackColor = System.Drawing.Color.White;
+            this.labelMountDetect.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+            this.labelMountDetect.Location = new System.Drawing.Point(97, 51);
+            this.labelMountDetect.Name = "labelMountDetect";
+            this.labelMountDetect.Size = new System.Drawing.Size(2, 15);
+            this.labelMountDetect.TabIndex = 30;
             // 
             // SetupDialogForm
             // 
@@ -688,14 +712,14 @@
             this.tabControl1.ResumeLayout(false);
             this.tabPage1.ResumeLayout(false);
             this.tabPage1.PerformLayout();
+            this.groupBox3.ResumeLayout(false);
+            this.groupBox3.PerformLayout();
             this.groupBox2.ResumeLayout(false);
             this.groupBox2.PerformLayout();
             this.groupBox1.ResumeLayout(false);
             this.groupBox1.PerformLayout();
             this.tabPage2.ResumeLayout(false);
             this.tabPage2.PerformLayout();
-            this.groupBox3.ResumeLayout(false);
-            this.groupBox3.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -753,5 +777,7 @@
         private System.Windows.Forms.RadioButton radioButtonAlignonSync3;
         private System.Windows.Forms.RadioButton radioButtonAlignonSync2;
         private System.Windows.Forms.RadioButton radioButtonAlignonSync1;
+        private System.Windows.Forms.Button buttonFindMount;
+        private System.Windows.Forms.Label labelMountDetect;
     }
 }

@@ -761,7 +761,7 @@ namespace ASCOM.TTS160.Telescope
                         {
                             LogMessage("SetConnected", "Success");
                             LogMessage("SetConnected", $"Connected with {Description}");
-                            LogMessage("SetConnected", $"Mount Name: {Commander(":GVP#", true, 2)}");
+                            LogMessage("SetConnected", $"Mount Name: {Commander(":GVP#", true, 2).TrimEnd('#')}");
                             string firmware = Commander(":GVN#", true, 2).TrimEnd('#');
                             int devtest = 0;
                             try
@@ -2698,6 +2698,8 @@ namespace ASCOM.TTS160.Telescope
                     {
                         PulseGuideAwesome(Dir2, dur2);
                     }
+
+                    if (!profileProperties.PulseGuideDurationCompliant) { Thread.Sleep(Duration); }
 
                     /*
                     //double SIDEREAL_SECONDS_TO_SI_SECONDS = 0.99726956631945;
