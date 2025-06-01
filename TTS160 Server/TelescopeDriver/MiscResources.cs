@@ -37,33 +37,18 @@ namespace ASCOM.TTS160
             internal set => _isPulseGuiding.Set(value);
         }
 
-        private static readonly ThreadSafeValue<bool> _EWPulseGuideFlag = false;
-        public static bool EWPulseGuideFlag
+        private static readonly ThreadSafeValue<int> _PulseGuideDuration = 0;
+        public static int PulseGuideDuration
         {
-            get => _EWPulseGuideFlag;
-            internal set => _EWPulseGuideFlag.Set(value);
+            get => _PulseGuideDuration;
+            internal set => _PulseGuideDuration.Set(value);
         }
 
-        private static readonly ThreadSafeValue<bool> _NSPulseGuideFlag = false;
-        public static bool NSPulseGuideFlag
+        private static readonly ThreadSafeValue<DateTime> _PulseGuideStart = DateTime.MinValue;
+        public static DateTime PulseGuideStart
         {
-            get => _NSPulseGuideFlag;
-            internal set => _NSPulseGuideFlag.Set(value);
-        }
-
-
-        private static readonly ThreadSafeValue<DateTime> _EWPulseGuideFinish = DateTime.MinValue;
-        public static DateTime EWPulseGuideFinish
-        {
-            get => _EWPulseGuideFinish;
-            internal set => _EWPulseGuideFinish.Set(value);
-        }
-
-        private static readonly ThreadSafeValue<DateTime> _NSPulseGuideFinish = DateTime.MinValue;
-        public static DateTime NSPulseGuideFinish
-        {
-            get => _NSPulseGuideFinish;
-            internal set => _NSPulseGuideFinish.Set(value);
+            get => _PulseGuideStart;
+            internal set => _PulseGuideStart.Set(value);
         }
 
         private static readonly ThreadSafeValue<bool> _isSlewing = false;
@@ -157,14 +142,6 @@ namespace ASCOM.TTS160
         {
             get => _NSMoveAxisStopFlag;
             internal set => _NSMoveAxisStopFlag.Set(value);
-        }
-
-        private static readonly ThreadSafeValue<DriveRates> _TrackingRateCurrent = DriveRates.driveSidereal;
-        public static DriveRates TrackingRateCurrent
-        {
-            get => _TrackingRateCurrent;
-            internal set => _TrackingRateCurrent.Set(value);
-
         }
 
         private static readonly ThreadSafeValue<bool> _IsParked = false;

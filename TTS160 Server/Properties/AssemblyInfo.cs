@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 //
 // TODO - Add your authorship information here
 [assembly: AssemblyTitle("ASCOM.TTS160.Telescope")]
-[assembly: AssemblyDescription("ASCOM Local Server Telescope driver for TTS160 v. 355.0.0RC1")]
+[assembly: AssemblyDescription("ASCOM Local Server Telescope driver for TTS160 v. 356.0.0B2")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("The ASCOM Initiative")]
 [assembly: AssemblyProduct("ASCOM Local Server Telescope driver for TTS160")]
@@ -31,4 +31,4 @@ using System.Runtime.InteropServices;
 // by using the '*' as shown below:
 
 [assembly: AssemblyVersion("7.0.0.0")]
-[assembly: AssemblyFileVersion("355.0.0.1")]
+[assembly: AssemblyFileVersion("356.0.0.2")]

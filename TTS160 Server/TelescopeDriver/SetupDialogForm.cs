@@ -119,44 +119,18 @@ namespace ASCOM.TTS160
         public ProfileProperties GetProfile(ProfileProperties CurProfile)
         {
 
-            int CompatMode = 0;
             int GuideComp = 0;
-            int DefaultTracking = 0;
-            bool CanSetTrackingOverride = false;
-            bool CanSetGuideRatesOverride = false;
-            int HCGuideRate = 2;
             int AlignOnSyncPoints = 0;
             bool AlignOnSyncEnabled = false;
+            bool ParkLoc = false;
+            bool SetParkLoc = false;
 
             utilities = new Util();
-
-            if (mpmBtn.Checked)
-            {
-                CompatMode = 1;
-                CanSetTrackingOverride = true;
-                CanSetGuideRatesOverride = true;
-            }
 
             if (radioButtonGuidingAlt.Checked)
             {
                 GuideComp = 1;
             }
-
-            if (radioSidereal.Checked) { DefaultTracking = 0; }
-            else
-            if (radioLunar.Checked) { DefaultTracking = 1; }
-            else
-            if (radioSolar.Checked) { DefaultTracking = 2; }
-
-            if (radioButtonGR0.Checked) { HCGuideRate = 0; }
-            else
-            if (radioButtonGR1.Checked) { HCGuideRate = 1; }
-            else
-            if (radioButtonGR2.Checked) { HCGuideRate = 2; }
-            else
-            if (radioButtonGR3.Checked) { HCGuideRate = 3; }
-            else
-            if (radioButtonGR4.Checked) { HCGuideRate = 4; }
 
             if (checkBoxAlignonSync.Checked)
             {
@@ -174,6 +148,9 @@ namespace ASCOM.TTS160
                 AlignOnSyncPoints = 0;
             }
 
+            if (radioButtonParkCustom.Checked) { ParkLoc = true; }
+            if (checkBoxParkUpdate.Checked) { SetParkLoc = true; }
+
             try
             {
                 double driversitelatbuff = utilities.DMSToDegrees(textBoxDriverSiteLat.Text);
@@ -188,22 +165,21 @@ namespace ASCOM.TTS160
                     SlewSettleTime = Int16.Parse(SlewSetTimeTxt.Text),
                     SiteLatitude = CurProfile.SiteLatitude,
                     SiteLongitude = CurProfile.SiteLongitude,
-                    CompatMode = CompatMode,
-                    CanSetTrackingOverride = CanSetTrackingOverride,
-                    CanSetGuideRatesOverride = CanSetGuideRatesOverride,
                     SyncTimeOnConnect = TimeSyncChk.Checked,
                     GuideComp = GuideComp,
                     GuideCompMaxDelta = Int32.Parse(textMaxDelta.Text),
                     GuideCompBuffer = Int32.Parse(textBuffer.Text),
-                    TrackingRateOnConnect = DefaultTracking,
                     PulseGuideEquFrame = checkBoxPulseGuideTopoEqu.Checked,
                     DriverSiteOverride = checkBoxDriverSiteOverride.Checked,
                     DriverSiteLatitude = driversitelatbuff,
                     DriverSiteLongitude = driversitelongbuff,
-                    HCGuideRate = HCGuideRate,
-                    PulseGuideDurationCompliant = checkBoxPulseGuideDuration.Checked,
+                    PulseGuideDurationSynchronous = checkBoxPulseGuideDuration.Checked,
                     AlignOnSyncEnabled = AlignOnSyncEnabled,
-                    AlignOnSyncPoints = AlignOnSyncPoints
+                    AlignOnSyncPoints = AlignOnSyncPoints,
+                    SetParkLoc = SetParkLoc,
+                    ParkLoc = ParkLoc,
+                    ParkLocAlt = Int16.Parse(textBoxParkLocAlt.Text),
+                    ParkLocAz = Int16.Parse(textBoxParkLocAz.Text)
                 };
 
                 return profileProperties;
@@ -248,18 +224,6 @@ namespace ASCOM.TTS160
                 SiteLonglbl.Text = utilities.DegreesToDMS(profileProperties.SiteLongitude,":",":","");
             }
 
-            switch (profileProperties.CompatMode)
-            {
-                case 0:
-                    noneBtn.Checked = true;
-                    mpmBtn.Checked = false;
-                    break;
-                case 1:
-                    noneBtn.Checked = false;
-                    mpmBtn.Checked = true;
-                    break;
-            }
-
             switch (profileProperties.GuideComp)
             {
                 case 0:
@@ -272,69 +236,6 @@ namespace ASCOM.TTS160
                     break;
             }
 
-            switch (profileProperties.TrackingRateOnConnect)
-            {
-                case 0:
-                    radioSidereal.Checked = true;
-                    radioLunar.Checked = false;
-                    radioSolar.Checked = false;
-                    break;
-                case 1:
-                    radioSidereal.Checked = false;
-                    radioLunar.Checked = true;
-                    radioSolar.Checked = false;
-                    break;
-                case 2:
-                    radioSidereal.Checked = false;
-                    radioLunar.Checked = false;
-                    radioSolar.Checked = true;
-                    break;
-
-            }
-
-            switch (profileProperties.HCGuideRate)
-            {
-                case 0:
-                    radioButtonGR0.Checked = true;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 1:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = true;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 2:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = true;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 3:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = true;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 4:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = true;
-                    break;
-            }
-
             TimeSyncChk.Checked = profileProperties.SyncTimeOnConnect;
 
             textBoxDriverSiteLat.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLatitude, ":", ":","", 1);
@@ -342,7 +243,7 @@ namespace ASCOM.TTS160
             checkBoxDriverSiteOverride.Checked = profileProperties.DriverSiteOverride;
 
             checkBoxPulseGuideTopoEqu.Checked = profileProperties.PulseGuideEquFrame;
-            checkBoxPulseGuideDuration.Checked = profileProperties.PulseGuideDurationCompliant;
+            checkBoxPulseGuideDuration.Checked = profileProperties.PulseGuideDurationSynchronous;
 
             radioButtonGuidingNone.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
             radioButtonGuidingAlt.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
@@ -365,6 +266,11 @@ namespace ASCOM.TTS160
                     break;
             }
 
+            radioButtonParkinPlace.Checked = !profileProperties.ParkLoc;
+            radioButtonParkCustom.Checked = profileProperties.ParkLoc;
+            checkBoxParkUpdate.Checked = profileProperties.SetParkLoc;
+            textBoxParkLocAlt.Text = profileProperties.ParkLocAlt.ToString();
+            textBoxParkLocAz.Text = profileProperties.ParkLocAz.ToString();
         }
 
         private void radioButtonGuidingEl_CheckedChanged(object sender, EventArgs e)
@@ -473,6 +379,11 @@ namespace ASCOM.TTS160
 
             }
             labelMountDetect.Text = "Not Detected";
+        }
+
+        private void groupBox4_Enter(object sender, EventArgs e)
+        {
+
         }
     }
 
