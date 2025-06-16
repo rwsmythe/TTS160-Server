@@ -28,8 +28,8 @@ namespace ASCOM.TTS160
         public int AlignOnSyncPoints { get; set; }
         public bool SetParkLoc { get; set; }
         public bool ParkLoc { get; set; }
-        public int ParkLocAlt { get; set; }
-        public int ParkLocAz { get; set; }
+        public double ParkLocAlt { get; set; }
+        public double ParkLocAz { get; set; }
             
     }
 }

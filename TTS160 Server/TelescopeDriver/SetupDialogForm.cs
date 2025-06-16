@@ -8,6 +8,7 @@ using System.Text;
 using System.Windows.Forms;
 using ASCOM.TTS160.Telescope;
 using Microsoft.VisualBasic;
+using System.Management;
 
 namespace ASCOM.TTS160
 {
@@ -344,7 +345,7 @@ namespace ASCOM.TTS160
         private void buttonFindMount_Click(object sender, EventArgs e)
         {
 
-            Serial serial = new Serial();
+            /*Serial serial = new Serial();
 
             serial.Speed = SerialSpeed.ps9600;
             serial.Parity = SerialParity.None;
@@ -378,7 +379,43 @@ namespace ASCOM.TTS160
                 }
 
             }
-            labelMountDetect.Text = "Not Detected";
+            labelMountDetect.Text = "Not Detected";*/
+
+            StringBuilder portInfo = new StringBuilder();
+            portInfo.AppendLine("COM Port Device Information:\n");
+
+            try
+            {
+                var searcher = new ManagementObjectSearcher(
+                    "SELECT * FROM Win32_PnPEntity WHERE Caption LIKE '%(COM%'");
+
+                foreach (ManagementObject device in searcher.Get())
+                {
+                    portInfo.AppendLine($"Name: {device["Caption"]}");
+                    portInfo.AppendLine($"Device ID: {device["DeviceID"]}");
+                    portInfo.AppendLine($"Manufacturer: {device["Manufacturer"]}");
+                    portInfo.AppendLine($"Service: {device["Service"]}");
+                    portInfo.AppendLine($"Hardware ID: {((string[])device["HardwareID"])?[0]}");
+                    portInfo.AppendLine("--------------------------------");
+                }
+
+                if (portInfo.Length > 50) // Has content beyond header
+                {
+                    MessageBox.Show(portInfo.ToString(), "COM Port Information",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("No COM ports found.", "COM Port Information",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error querying COM ports: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
         }
 
         private void groupBox4_Enter(object sender, EventArgs e)

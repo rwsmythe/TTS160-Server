@@ -325,7 +325,7 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
                     CheckConnected("Commander");
-                    CheckParked("Commander");
+                    //CheckParked("Commander");
                 }
                 catch (Exception ex)
                 {
@@ -737,11 +737,13 @@ namespace ASCOM.TTS160.Telescope
                         //First time connection
                         try
                         {
+                            /*
                             if (AtPark)
                             {
                                 LogMessage("SetConnected", "Mount appears parked.  Cycle power and disconnect from all programs to connect");
                                 throw new ASCOM.ParkedException("Mount appears parked.  Cycle mount power and disconnect from all programs to connect");
                             }
+                            */
 
                             //Define new serial object.  TTS-160 connects at 9600 baud, 8 data, no parity, 1 stop
                             SharedResources.comPort = profileProperties.ComPort;
@@ -842,7 +844,7 @@ namespace ASCOM.TTS160.Telescope
                                     LogMessage("SetConnected", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
                                     if (profileProperties.ParkLoc) 
                                     { 
-                                        Commander($":*PS1{profileProperties.ParkLocAz.ToString("D3")}{profileProperties.ParkLocAlt.ToString("D2")}#", true, 0);
+                                        Commander($":*PS1{profileProperties.ParkLocAz.ToString("D3.3")}{profileProperties.ParkLocAlt.ToString("D2.3")}#", true, 0);
                                     }
                                     else 
                                     { 
@@ -855,8 +857,8 @@ namespace ASCOM.TTS160.Telescope
                                 string parkstatus = Commander(":*PG#", true, 2);
                                 if ((parkstatus[0] - '0') == 0) { profileProperties.ParkLoc = false; }
                                 else { profileProperties.ParkLoc = true; }
-                                profileProperties.ParkLocAz = Int32.Parse(parkstatus.Substring(1, 3));
-                                profileProperties.ParkLocAlt = Int32.Parse(parkstatus.Substring(4, 2));
+                                profileProperties.ParkLocAz = Double.Parse(parkstatus.Substring(1, 7));
+                                profileProperties.ParkLocAlt = Double.Parse(parkstatus.Substring(8, 6));
                                 LogMessage("SetConnected", $"Park in Place: {!profileProperties.ParkLoc}");
                                 LogMessage("SetConnected", $"Custom Park Location Altitude: {profileProperties.ParkLocAlt}");
                                 LogMessage("SetConnected", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
@@ -1169,7 +1171,7 @@ namespace ASCOM.TTS160.Telescope
         {
             get
             {
-                MiscResources.IsParked = bool.Parse(Commander(":*Pq#", true, 1))
+                MiscResources.IsParked = bool.Parse(Commander(":*Pq#", true, 1));
                 LogMessage("AtPark get", $"{MiscResources.IsParked}");
                 return MiscResources.IsParked;
             }
@@ -4654,7 +4656,9 @@ namespace ASCOM.TTS160.Telescope
                     }
                     else
                     {
-                        var targDec = utilities.DegreesToDMS(value, "*", ":");              
+                        LogMessage("TargetDeclination Set", $"Target Dec Raw:{value}");
+                        var targDec = utilities.DegreesToDMS(value, "*", ":");
+                        LogMessage("TargetDeclination Set", $"Target Dec String: {targDec}");
                         bool result = false;
                         if (value >= 0)
                         {
@@ -4662,7 +4666,7 @@ namespace ASCOM.TTS160.Telescope
                         }
                         else
                         {
-                            result = bool.Parse(Commander($":Sd-{targDec}#", true, 1));
+                            result = bool.Parse(Commander($":Sd{targDec}#", true, 1));  //negative numbers already have a preceeding (-) sign
                         }
 
                         if (!result) { throw new ASCOM.InvalidValueException("Invalid Target Declination:" + targDec); }
