@@ -12,6 +12,5 @@ namespace ASCOM.LocalServer
             this.ShowInTaskbar = false;
             this.Visible = false;
         }
-
     }
 }

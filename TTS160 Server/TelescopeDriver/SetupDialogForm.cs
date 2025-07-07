@@ -179,8 +179,8 @@ namespace ASCOM.TTS160
                     AlignOnSyncPoints = AlignOnSyncPoints,
                     SetParkLoc = SetParkLoc,
                     ParkLoc = ParkLoc,
-                    ParkLocAlt = Int16.Parse(textBoxParkLocAlt.Text),
-                    ParkLocAz = Int16.Parse(textBoxParkLocAz.Text)
+                    ParkLocAlt = Double.Parse(textBoxParkLocAlt.Text),
+                    ParkLocAz = Double.Parse(textBoxParkLocAz.Text)
                 };
 
                 return profileProperties;
