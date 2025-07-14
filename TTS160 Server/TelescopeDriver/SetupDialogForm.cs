@@ -25,6 +25,8 @@ namespace ASCOM.TTS160
 
             // Save the provided trace logger for use within the setup dialogue
             tl = tlDriver;
+            // Set the title of the form to include the driver name
+            this.Text = TelescopeHardware.Description + " Setup";
 
             // Initialise current values of user settings from the ASCOM Profile
             InitUI();

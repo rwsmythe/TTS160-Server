@@ -90,7 +90,7 @@ namespace ASCOM.TTS160.Telescope
         /// This driver is intended to specifically support TTS-160 Panther mount, based on the LX200 protocol.
         /// Driver description that displays in the ASCOM Chooser.
         /// </summary>
-        private static readonly string driverVersion = "356.0.0Beta2";
+        private static readonly string driverVersion = "356.0.0B6";
 
         #region Default Profile values
         internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
@@ -1361,8 +1361,8 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetDeclinationRate");
 
                     //SetDeclinationRate is not implemented in TTS-160, return false
-                    LogMessage("CanSetDeclinationRate", $"{false}");
-                    return false;
+                    LogMessage("CanSetDeclinationRate", $"{true}");
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1452,8 +1452,8 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetRightAscensionRate");
 
                     //TTS-160 has not implemented SetRightAscensionRate, return false
-                    LogMessage("CanSetRightAscensionRate get", $"{false}");
-                    return false;
+                    LogMessage("CanSetRightAscensionRate get", $"{true}");
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1696,16 +1696,62 @@ namespace ASCOM.TTS160.Telescope
         {
             get
             {
-                //Declination Rate not implemented by TTS-160, return 0.0
-                double declinationRate = 0.0;
-                LogMessage("DeclinationRate get", $"{declinationRate}");
-                return declinationRate;
+
+                try
+                {
+                    CheckConnected("DeclinationRate Get");
+
+                    double declinationrate = 0.0;
+
+                    string cmd = ":*RD#"; //Get the current declination rate
+                    LogMessage("DeclinationRate get", $"{cmd}");
+                    var result = Commander(cmd, true, 2).TrimEnd('#');
+                    LogMessage("Declinationrate get", $"Retrieved value: {result} arc sec/sec");
+                    declinationrate = double.Parse(result, CultureInfo.InvariantCulture); //return in arc sec/sec
+     
+                    return declinationrate;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate get", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
             set
             {
-                //Declination Rate not implemented by TTS-160
-                LogMessage("DeclinationRate Set", "Not implemented");
-                throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                try
+                {
+                    //Declination Rate not implemented by TTS-160
+                    //LogMessage("DeclinationRate Set", "Not implemented");
+                    //throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                    CheckConnected("DeclinationRate Set");
+
+                    LogMessage("DeclinationRate set", $"{value} arc sec/sec");
+
+                    if( TrackingRate != DriveRates.driveSidereal)
+                    {
+                        throw new InvalidOperationException("Tracking must be set to Sidereal before setting Declination Rate");
+                    }
+
+                    if ( Math.Abs(value) > 99.9999999999 )
+                    {
+                        throw new InvalidValueException("DeclinationRate", value.ToString(CultureInfo.InvariantCulture), "[-99.9999999999, 99.9999999999]");
+                    }
+                    string cmd = $":*SD{value.ToString("+00.0000000000;-00.0000000000")}#";
+                    LogMessage("DeclinationRate set", $"Sending command: {cmd}");
+                    Commander(cmd, true, 0);
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate set", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
         }
 
@@ -3031,15 +3077,66 @@ namespace ASCOM.TTS160.Telescope
         {
             get
             {
-                //RightAscensionRate is not implemented by TTS-160, return 0.0
-                double rightAscensionRate = 0.0;
-                LogMessage("RightAscensionRate get", $"{rightAscensionRate}");
-                return rightAscensionRate;
+
+                try
+                {
+                    CheckConnected("RightAscensionRate Get");
+
+                    double rarate = 0.0;
+
+                    string cmd = ":*RR#"; //Get the current RA rate
+                    LogMessage("RightAscensionRate get", $"{cmd}");
+                    var result = Commander(cmd, true, 2).TrimEnd('#');
+                    LogMessage("RightAscensionRate get", $"Retrieved value: {result} arc sec/sec");
+
+                    rarate = double.Parse(result, CultureInfo.InvariantCulture) * 0.9972695677; //return in sidereal sec/sec
+                    LogMessage("RightAscensionRate get", $"Returned Value: {rarate} sidereal sec/sec");
+
+                    return rarate;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("RightAscensionRate get", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
             set
             {
-                LogMessage("RightAscensionRate Set", "Not implemented");
-                throw new PropertyNotImplementedException("RightAscensionRate", true);
+
+                try
+                {
+                    //Declination Rate not implemented by TTS-160
+                    //LogMessage("DeclinationRate Set", "Not implemented");
+                    //throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                    CheckConnected("RightAsecnsionRate Set");
+
+                    if (TrackingRate != DriveRates.driveSidereal)
+                    {
+                        throw new InvalidOperationException("Tracking must be set to Sidereal before setting RightAscension Rate");
+                    }
+
+                    LogMessage("RightAscensionRate set", $"{value} sidereal sec/sec");
+
+                    double rarate = value * 1.00273790935; //convert to arc sec/sec
+
+                    if (Math.Abs(rarate) > 99.9999999999)
+                    {
+                        throw new InvalidValueException("DeclinationRate", rarate.ToString(CultureInfo.InvariantCulture), "[-99.9999999999, 99.9999999999]");
+                    }
+                    string cmd = $":*SR{rarate.ToString("+00.0000000000;-00.0000000000")}#";
+                    LogMessage("RightAscensionRate set", $"Sending command: {cmd}");
+                    Commander(cmd, true, 0);
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate set", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
         }
 
@@ -5132,8 +5229,8 @@ namespace ASCOM.TTS160.Telescope
                     profileProperties.AlignOnSyncPoints = Int32.Parse(driverProfile.GetValue(DriverProgId, AlignOnSyncPointsName, string.Empty, AlignOnSyncPointsDefault));
                     profileProperties.SetParkLoc = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, SetParkLocName, string.Empty, SetParkLocDefault));
                     profileProperties.ParkLoc = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, ParkLocName, string.Empty, ParkLocDefault));
-                    profileProperties.ParkLocAlt = Int32.Parse(driverProfile.GetValue(DriverProgId, ParkLocAltName, string.Empty, ParkLocAltDefault));
-                    profileProperties.ParkLocAz = Int32.Parse(driverProfile.GetValue(DriverProgId, ParkLocAzName, string.Empty, ParkLocAzDefault));
+                    profileProperties.ParkLocAlt = Double.Parse(driverProfile.GetValue(DriverProgId, ParkLocAltName, string.Empty, ParkLocAltDefault));
+                    profileProperties.ParkLocAz = Double.Parse(driverProfile.GetValue(DriverProgId, ParkLocAzName, string.Empty, ParkLocAzDefault));
                 }
                 return profileProperties;
             }
