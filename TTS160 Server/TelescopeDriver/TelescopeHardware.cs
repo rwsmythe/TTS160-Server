@@ -90,7 +90,7 @@ namespace ASCOM.TTS160.Telescope
         /// This driver is intended to specifically support TTS-160 Panther mount, based on the LX200 protocol.
         /// Driver description that displays in the ASCOM Chooser.
         /// </summary>
-        private static readonly string driverVersion = "356.0.0B6";
+        private static readonly string driverVersion = "356.0.0";
 
         #region Default Profile values
         internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
