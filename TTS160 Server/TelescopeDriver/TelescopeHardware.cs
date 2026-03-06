@@ -450,8 +450,46 @@ namespace ASCOM.TTS160.Telescope
 
         }
 
+        /// <summary>
+        /// Central serial communication method for the TTS-160 mount. All telescope commands flow through
+        /// this method, which delegates to <see cref="SharedResources.SendMessage"/> for actual serial I/O.
+        /// Implements the LX200 serial command protocol.
+        /// </summary>
+        /// <param name="command">
+        /// The command string to send to the mount. When <paramref name="raw"/> is <c>false</c>,
+        /// this is the bare command (e.g., "GVP") which will be automatically framed with LX200
+        /// protocol characters (colon prefix and hash suffix).
+        /// </param>
+        /// <param name="raw">
+        /// When <c>false</c>, the command is wrapped with LX200 framing: a <c>:</c> prefix and <c>#</c> suffix
+        /// are added before transmission (e.g., "GVP" becomes ":GVP#").
+        /// When <c>true</c>, the command string is sent exactly as provided with no modification.
+        /// </param>
+        /// <param name="commandtype">
+        /// Specifies the expected response type:
+        /// <list type="bullet">
+        /// <item><description>0 = Blind (fire-and-forget): sends command with no expected response, returns empty string.</description></item>
+        /// <item><description>1 = Boolean: expects a single-digit response, returns it as a string.</description></item>
+        /// <item><description>2 = String: expects a <c>#</c>-terminated response string.</description></item>
+        /// </list>
+        /// </param>
+        /// <returns>
+        /// The mount's response: empty string for blind commands, a single-digit string for boolean commands,
+        /// or a <c>#</c>-terminated string for string commands.
+        /// </returns>
+        /// <exception cref="ASCOM.DriverException">
+        /// Thrown when an invalid <paramref name="commandtype"/> is provided, or when retry attempts
+        /// are exhausted after a timeout.
+        /// </exception>
+        /// <remarks>
+        /// <para>Thread safety: all calls are serialized via <see cref="LockObject"/> to prevent
+        /// concurrent serial port access.</para>
+        /// <para>On a COM timeout (HResult code 1026), the method automatically retries via
+        /// <see cref="CommanderReTx"/> up to 5 times. After a successful retry, the retransmit
+        /// buffer is cleared to maintain command/response synchronization.</para>
+        /// </remarks>
         internal static string Commander(string command, bool raw, int commandtype)
-        {          
+        {
 
             lock (LockObject)
             {
@@ -465,9 +503,11 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("Commander", $"Exception: {ex.Message}");
                 }
 
+                // Apply LX200 protocol framing if not sending a raw command
                 if (!raw) { command = ":" + command + "#"; }
                 try
                 {
+                    // Dispatch based on expected response type
                     switch (commandtype)
                     {
                         case 0:
@@ -519,7 +559,9 @@ namespace ASCOM.TTS160.Telescope
                 {
                     LogMessage("Commander", $"Error: {ex.Message}");
                    
-                    if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))  //This indicates a timeout while waiting for a response from the mount.  Usually seen when polling slewing status when it changes at the end of a goto
+                    // Check for COM timeout: HResult low 16 bits == 1026 (0x0402) indicates a serial read timeout.
+                    // This commonly occurs when polling slewing status at the end of a goto command.
+                    if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))
                     {
                         LogMessage("Commander", $"{ex}");
                         LogMessage("Commander", $"isFailure: {(ex.HResult & 0x80000000) != 0}; facility: {(ex.HResult & 0x7FFF0000) >> 16}; code: {ex.HResult & 0xFFFF}");
@@ -527,7 +569,9 @@ namespace ASCOM.TTS160.Telescope
                         try
                         {
                             int retx = 0;
-                            while (retx <= 5)  //Each loop iteration will be equal to the read timeout setting (RECEIVETIMEOUT in SharedResources)
+                            // Retry up to 6 attempts (0..5). Each iteration blocks for the serial read
+                            // timeout duration (RECEIVETIMEOUT in SharedResources).
+                            while (retx <= 5)
                             {
                                 LogMessage("Commander", $"Retry #: {retx + 1}");
                                 string result = CommanderReTx(command, commandtype);
@@ -538,8 +582,9 @@ namespace ASCOM.TTS160.Telescope
                                 else
                                 {
                                     LogMessage("Commander", $"Retry succeeded for {command} after {retx+1} retries.");
-                                    SharedResources.ClearReTxBuff();  //The mount will store commands and responses to return later, Any command sent is 1 to 1 with a response as applicable
-                                                                      //A timeout error will end up result in responses mismatched unless we clear the queue.  This loops through and clears the handpad queue that we filled with the retransmit attempt.
+                                    // The mount queues commands and responses 1:1. A timeout causes a mismatch,
+                                    // so we must clear the retransmit buffer to re-synchronize the queue.
+                                    SharedResources.ClearReTxBuff();
                                     return result;
                                 }
                             }
@@ -567,12 +612,27 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
-        /// <summary>Retransmits the timed out command.</summary>
-        /// <param name="command">The literal command string to be transmitted.</param>
-        /// <param name="commandtype">Command type (blind, bool, string) indicating the expected response.</param>
-        /// <returns>A string response. If timeout is detected, it will return "timeout".
-        /// <para>This function will return either the mount response ("" for blind), "timeout" for a detected timeout, or throw an Exception in all other cases.</para>
+        /// <summary>
+        /// Retransmits a command that previously timed out. Called by <see cref="Commander"/> as part
+        /// of the retry loop. Unlike Commander, this method does not apply protocol framing (the command
+        /// is already framed) and does not acquire <see cref="LockObject"/> (the caller already holds it).
+        /// </summary>
+        /// <param name="command">The fully-framed command string to retransmit (already includes protocol characters).</param>
+        /// <param name="commandtype">
+        /// Command type indicating expected response:
+        /// 0 = blind (fire-and-forget), 1 = boolean (single digit), 2 = string (#-terminated).
+        /// </param>
+        /// <returns>
+        /// <para>The mount's response on success: empty string for blind commands, the response string for bool/string commands.</para>
+        /// <para>Returns the literal string <c>"timeout"</c> if another COM timeout occurs (HResult code 1026),
+        /// allowing the caller to continue retrying.</para>
         /// </returns>
+        /// <exception cref="ASCOM.DriverException">Thrown for invalid command types.</exception>
+        /// <remarks>
+        /// The timeout detection uses the same HResult code 1026 check as <see cref="Commander"/>.
+        /// Non-timeout exceptions are re-thrown to the caller. The caller is responsible for clearing
+        /// the retransmit buffer after a successful retry via <see cref="SharedResources.ClearReTxBuff"/>.
+        /// </remarks>
         internal static string CommanderReTx(string command, int commandtype)
         {
             switch (commandtype)
@@ -645,15 +705,19 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and does not wait for a response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard blind command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=0</c> (fire-and-forget, no response expected).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static void CommandBlind(string command, bool raw)
         {
 
@@ -663,18 +727,20 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and waits for a boolean response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard boolean command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=1</c> (single-digit boolean response).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
-        /// <returns>
-        /// Returns the interpreted boolean response received from the device.
-        /// </returns>
+        /// <returns>The interpreted boolean response from the device.</returns>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static bool CommandBool(string command, bool raw)
         {
 
@@ -684,18 +750,20 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and waits for a string response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard string command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=2</c> (#-terminated string response).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
-        /// <returns>
-        /// Returns the string response received from the device.
-        /// </returns>
+        /// <returns>The string response received from the device.</returns>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static string CommandString(string command, bool raw)
         {
 
@@ -726,12 +794,19 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Connect to the hardware if not already connected
+        /// Asynchronously connect to the telescope hardware if not already connected.
+        /// Uses <see cref="Connecting"/> as the completion flag.
         /// </summary>
-        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
         /// <remarks>
-        /// The unique ID is stored to record that the driver instance is connected and to ensure that multiple calls from the same driver are ignored.
-        /// If this is the first driver instance to connect, the physical hardware link to the device is established
+        /// <para>Supports multi-instance connection tracking via the <c>uniqueIds</c> list. If the
+        /// <paramref name="uniqueId"/> is already in the list, the request is silently ignored.</para>
+        /// <para>The actual connection work is dispatched to a background <see cref="Task"/> that calls
+        /// <see cref="SetConnected"/>. The <see cref="Connecting"/> property is set to <c>true</c>
+        /// before the task starts and reset to <c>false</c> in the task's <c>finally</c> block,
+        /// allowing callers to poll for completion.</para>
+        /// <para>If this is the first driver instance to connect, the physical serial link to the
+        /// mount is established and first-connect initialization is performed (see <see cref="SetConnected"/>).</para>
         /// </remarks>
         public static void Connect(Guid uniqueId)
         {
@@ -784,13 +859,18 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Disconnect from the device asynchronously using Connecting as the completion variable
+        /// Asynchronously disconnect from the telescope hardware.
+        /// Uses <see cref="Connecting"/> as the completion flag.
         /// </summary>
-        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
         /// <remarks>
-        /// The list of connected driver instance IDs is queried to determine whether this driver instance is connected and, if so, it is removed from the connection list. 
-        /// The unique ID ensures that multiple calls from the same driver are ignored.
-        /// If this is the last connected driver instance, the physical link to the device hardware is disconnected.
+        /// <para>If the <paramref name="uniqueId"/> is not in the connected list, the request is silently ignored
+        /// (the instance is already disconnected).</para>
+        /// <para>Like <see cref="Connect"/>, the work is dispatched to a background <see cref="Task"/>
+        /// that calls <see cref="SetConnected"/> with <c>false</c>. The <see cref="Connecting"/> flag
+        /// tracks completion.</para>
+        /// <para>The driver instance's unique ID is removed from the <c>uniqueIds</c> list. If this was the
+        /// last connected instance, the physical serial link to the mount hardware is closed.</para>
         /// </remarks>
         public static void Disconnect(Guid uniqueId)
         {
@@ -846,10 +926,29 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Synchronously connect to or disconnect from the hardware
+        /// Synchronously connect to or disconnect from the telescope hardware.
+        /// Called by the background tasks in <see cref="Connect"/> and <see cref="Disconnect"/>.
         /// </summary>
-        /// <param name="uniqueId">Driver's unique ID</param>
-        /// <param name="newState">New state: Connected or Disconnected</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
+        /// <param name="newState">
+        /// <c>true</c> to connect, <c>false</c> to disconnect.
+        /// </param>
+        /// <remarks>
+        /// <para><b>Connection (newState=true):</b> If this is the first instance connecting
+        /// (uniqueIds is empty and SharedResources is not connected), performs first-time initialization:</para>
+        /// <list type="number">
+        /// <item><description>Opens the serial port via <see cref="SharedResources"/>.</description></item>
+        /// <item><description>Queries mount firmware version via LX200 <c>:GVN#</c> command and sets
+        /// <see cref="DEV_FIRMWARE"/> flag if version >= 355 (enables advanced features).</description></item>
+        /// <item><description>Reads site latitude/longitude from the mount.</description></item>
+        /// <item><description>Optionally syncs the mount's clock to the computer's UTC time.</description></item>
+        /// <item><description>On advanced firmware: configures Align-on-Sync mode and park location settings.</description></item>
+        /// </list>
+        /// <para>If other instances are already connected, simply increments the connection count.</para>
+        /// <para><b>Disconnection (newState=false):</b> Removes the driver ID from the connected list,
+        /// saves site coordinates, and decrements the shared connection count. When the last instance
+        /// disconnects, the hardware serial link is closed.</para>
+        /// </remarks>
         public static void SetConnected(Guid uniqueId, bool newState)
         {
             // Check whether we are connecting or disconnecting
@@ -895,18 +994,26 @@ namespace ASCOM.TTS160.Telescope
                         {
                             LogMessage("SetConnected", "Success");
                             LogMessage("SetConnected", $"Connected with {Description}");
+                            // Query mount product name via LX200 :GVP# command
                             LogMessage("SetConnected", $"Mount Name: {Commander(":GVP#", true, 2).TrimEnd('#')}");
+
+                            // --- Firmware version detection ---
+                            // Query firmware version string via LX200 :GVN# command (e.g., "356.0.0")
                             string firmware = Commander(":GVN#", true, 2).TrimEnd('#');
                             int devtest = 0;
                             try
                             {
+                                // Parse the first 3 characters as an integer (e.g., "356" -> 356)
+                                // to compare against the minimum advanced firmware version threshold
                                 devtest = int.Parse(firmware.Substring(0,3));
                             }
                             catch
                             {
+                                // Non-numeric firmware string; treat as legacy firmware
                                 devtest = 0;
                             }
 
+                            // Firmware versions >= 355 support advanced features (Align-on-Sync, park locations, etc.)
                             if (devtest >= 355)
                             {
                                 DEV_FIRMWARE = true;
@@ -930,6 +1037,9 @@ namespace ASCOM.TTS160.Telescope
                             LogMessage("SetConnected", $"Equatorial Pulse Guide: {profileProperties.PulseGuideEquFrame}");
                             WriteProfile(profileProperties);
 
+                            // --- Time synchronization ---
+                            // If enabled in profile settings, sync the mount's internal UTC clock
+                            // to the computer's system time. Logs before/after to show drift correction.
                             if (profileProperties.SyncTimeOnConnect)
                             {
                                 LogMessage("SetConnected", "Sync Time on Connect - " + profileProperties.SyncTimeOnConnect.ToString());
@@ -940,13 +1050,16 @@ namespace ASCOM.TTS160.Telescope
                                 LogMessage("SetConnected", "Post Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
                             }                    
 
-                            MiscResources.IsTargetDecSet = false; //'Clearing' any previous target info
+                            // Clear any previous slew target coordinates from a prior session
+                            MiscResources.IsTargetDecSet = false;
                             MiscResources.IsTargetRASet = false;
                             MiscResources.IsTargetSet = false;
 
+                            // --- Advanced firmware features (version >= 355 only) ---
                             if (DEV_FIRMWARE)
                             {
-
+                                // Configure Align-on-Sync if enabled in profile settings.
+                                // Sends the desired number of alignment points and verifies the mount echoes it back.
                                 if (profileProperties.AlignOnSyncEnabled)
                                 {
                                     LogMessage("SetConnected", $"Enabling Align on Sync mode with {profileProperties.AlignOnSyncPoints} alignment points");
@@ -969,27 +1082,34 @@ namespace ASCOM.TTS160.Telescope
                                     }
                                 }
 
+                                // --- Park location initialization ---
+                                // If the user updated the park location in the setup dialog, push it to the mount.
+                                // :*PS1<az><alt># sets a custom park location; :*PS0# sets park-in-place mode.
                                 if (profileProperties.SetParkLoc)
                                 {
                                     LogMessage("SetConnected", "Sending updated Park Location to Mount.");
                                     LogMessage("SetConnected", $"Park in Place: {!profileProperties.ParkLoc}");
                                     LogMessage("SetConnected", $"Custom Park Location Altitude: {profileProperties.ParkLocAlt}");
                                     LogMessage("SetConnected", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
-                                    if (profileProperties.ParkLoc) 
-                                    { 
+                                    if (profileProperties.ParkLoc)
+                                    {
+                                        // Send custom park coordinates: azimuth (DDD.ddd) + altitude (DD.ddd)
                                         Commander($":*PS1{profileProperties.ParkLocAz.ToString("D3.3")}{profileProperties.ParkLocAlt.ToString("D2.3")}#", true, 0);
                                     }
-                                    else 
-                                    { 
-                                        Commander(":*PS0#", true, 0); 
+                                    else
+                                    {
+                                        // Park-in-place mode: mount parks wherever it currently points
+                                        Commander(":*PS0#", true, 0);
                                     }
                                     profileProperties.SetParkLoc = false;
                                 }
 
+                                // Read back the mount's current park location settings via :*PG#
+                                // Response format: <mode><azimuth 7 chars><altitude 6 chars>
                                 LogMessage("SetConnected", "Getting Mount Park Location Settings");
                                 string parkstatus = Commander(":*PG#", true, 2);
-                                if ((parkstatus[0] - '0') == 0) { profileProperties.ParkLoc = false; }
-                                else { profileProperties.ParkLoc = true; }
+                                if ((parkstatus[0] - '0') == 0) { profileProperties.ParkLoc = false; }  // '0' = park-in-place
+                                else { profileProperties.ParkLoc = true; }  // '1' = custom park location
                                 profileProperties.ParkLocAz = Double.Parse(parkstatus.Substring(1, 7));
                                 profileProperties.ParkLocAlt = Double.Parse(parkstatus.Substring(8, 6));
                                 LogMessage("SetConnected", $"Park in Place: {!profileProperties.ParkLoc}");
