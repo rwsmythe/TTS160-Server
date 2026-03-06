@@ -1,11 +1,11 @@
-// TODO fill in this information for your driver, then remove this line!
+// ASCOM Telescope driver for TTS-160 Panther mount
 //
-// ASCOM Telescope driver for TTS160
+// Description:  Per-instance COM-visible driver implementing ITelescopeV4.
+//               Thin presentation layer delegating all hardware operations to the
+//               shared static TelescopeHardware class.
 //
-// Description:	 <To be completed by driver developer>
-//
-// Implements:	ASCOM Telescope interface version: <To be completed by driver developer>
-// Author:		(XXX) Your N. Here <your@email.here>
+// Implements:   ASCOM Telescope interface version 4 (ITelescopeV4)
+// Author:       Reid Smythe
 //
 
 using ASCOM.DeviceInterface;
@@ -19,19 +19,24 @@ using System.Windows.Forms;
 
 namespace ASCOM.TTS160.Telescope
 {
+    // Presentation layer for the TelescopeHardware class. Most customization belongs in
+    // TelescopeHardware, which is shared by all instances and handles all device communication.
     //
-    // This code is mostly a presentation layer for the functionality in the TelescopeHardware class. You should not need to change the contents of this file very much, if at all.
-    // Most customisation will be in the TelescopeHardware class, which is shared by all instances of the driver, and which must handle all aspects of communicating with your device.
-    //
-    // Your driver's DeviceID is ASCOM.TTS160.Telescope
-    //
-    // The COM Guid attribute sets the CLSID for ASCOM.TTS160.Telescope
-    // The COM ClassInterface/None attribute prevents an empty interface called _TTS160 from being created and used as the [default] interface
-    //
+    // DeviceID: ASCOM.TTS160.Telescope
+    // The COM Guid attribute sets the CLSID; ClassInterface(None) prevents an empty default interface.
 
     /// <summary>
-    /// ASCOM Telescope Driver for TTS160.
+    /// ASCOM Telescope Driver for the TTS-160 Panther mount.
     /// </summary>
+    /// <remarks>
+    /// <para>This is a per-instance COM-visible class implementing <see cref="ITelescopeV4"/>.
+    /// Each ASCOM client (NINA, PHD2, etc.) gets its own instance of this class. All instances
+    /// share a single hardware connection through the static <see cref="TelescopeHardware"/> class.</para>
+    /// <para>Inherits <see cref="ReferenceCountedObjectBase"/> for COM object lifecycle tracking.
+    /// The COM server uses reference counting to know when all clients have disconnected.</para>
+    /// <para>Nearly all methods follow the delegation pattern: CheckConnected → Log → Delegate
+    /// to TelescopeHardware → Log → Return/Throw.</para>
+    /// </remarks>
     [ComVisible(true)]
     [Guid("4e3b2a03-ef8c-44e5-a277-5733649d9155")]
     [ProgId("ASCOM.TTS160.Telescope")]
@@ -572,6 +577,12 @@ namespace ASCOM.TTS160.Telescope
         #endregion
 
         #region ITelescope Implementation
+        // All methods in this region follow the standard delegation pattern:
+        //   1. CheckConnected() — throw NotConnectedException if not connected
+        //   2. LogMessage() — log the incoming call
+        //   3. Delegate to the corresponding TelescopeHardware static method
+        //   4. LogMessage() — log the result
+        //   5. Return the value or let exceptions propagate
 
         /// <summary>
         /// Stops a slew in progress.
@@ -2234,9 +2245,9 @@ namespace ASCOM.TTS160.Telescope
         // Useful properties and methods that can be used as required to help with driver development
 
         /// <summary>
-        /// Use this function to throw an exception if we aren't connected to the hardware
+        /// Throws <see cref="NotConnectedException"/> if this driver instance is not connected.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller context included in the exception message.</param>
         private void CheckConnected(string message)
         {
             if (!connectedState)
