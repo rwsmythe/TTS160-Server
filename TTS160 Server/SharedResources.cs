@@ -19,13 +19,16 @@ using System;
 namespace ASCOM.LocalServer
 {
     /// <summary>
-    /// Add and manage resources that are shared by all drivers served by this local server here.
-    /// In this example it's a serial port with a shared SendMessage method an idea for locking the message and handling connecting is given.
-    /// In reality extensive changes will probably be needed. 
-    /// Multiple drivers means that several drivers connect to the same hardware device, aka a hub.
-    /// Multiple devices means that there are more than one instance of the hardware, such as two focusers. In this case there needs to be multiple instances
-    /// of the hardware connector, each with it's own connection count.
+    /// Static container for resources shared across all driver instances served by this COM local server.
+    /// Manages the single shared serial port connection to the TTS-160 mount, providing thread-safe
+    /// message sending, connection reference counting, and buffer management.
     /// </summary>
+    /// <remarks>
+    /// <para>All declarations are static — instances of this class must never be created.</para>
+    /// <para>Decorated with <see cref="HardwareClassAttribute"/> so its <see cref="Dispose"/> method
+    /// is called automatically when the local server shuts down.</para>
+    /// <para>The serial port is configured for 9600 baud, 8N1 with a 500ms receive timeout.</para>
+    /// </remarks>
     [HardwareClass]
     public static class SharedResources
     {
@@ -89,6 +92,10 @@ namespace ASCOM.LocalServer
             }
         }
 
+        /// <summary>
+        /// The COM port name (e.g., "COM3") used for the serial connection to the mount.
+        /// Set from the ASCOM Profile during driver initialization.
+        /// </summary>
         public static string comPort { get; set; }
 
         /// <summary>
@@ -108,12 +115,19 @@ namespace ASCOM.LocalServer
         }
 
         /// <summary>
-        /// Example of a shared SendMessage method
+        /// Sends a pre-framed LX200 command to the mount via the shared serial port and returns the response.
         /// </summary>
-        /// <param name="message"></param>
-        /// <returns></returns>
+        /// <param name="command">The fully-framed command string to transmit (already includes protocol characters).</param>
+        /// <param name="commandtype">
+        /// Expected response type: 0 = blind (fire-and-forget, returns ""), 1 = boolean (single character,
+        /// returns "True"/"False"), 2 = string (#-terminated response).
+        /// </param>
+        /// <returns>The mount's response as a string.</returns>
         /// <remarks>
-        /// The lock prevents different drivers tripping over one another. It needs error handling and assumes that the message will be sent unchanged and that the reply will always be terminated by a "#" character.
+        /// <para>Serialized via lock to prevent concurrent serial access from multiple driver instances.</para>
+        /// <para>Clears serial buffers before each transmission to avoid stale data.</para>
+        /// <para>Special case: when the <c>:MS#</c> (Move/Slew) command returns boolean true (object below
+        /// horizon), the mount also sends a #-terminated error string that must be drained.</para>
         /// </remarks>
         public static string SendMessage(string command, int commandtype)
         {
@@ -173,6 +187,16 @@ namespace ASCOM.LocalServer
             }
         }
 
+        /// <summary>
+        /// Drains stale responses from the serial receive buffer after a command retry sequence.
+        /// </summary>
+        /// <remarks>
+        /// <para>Called by <see cref="TelescopeHardware.Commander"/> after a successful retry to
+        /// re-synchronize the command/response queue. The mount queues responses 1:1 with commands,
+        /// so retransmitted commands create extra queued responses that must be cleared.</para>
+        /// <para>Loops calling <see cref="Serial.Receive"/> until a timeout exception is thrown
+        /// (indicating the buffer is empty). The timeout exception is intentionally swallowed.</para>
+        /// </remarks>
         public static void ClearReTxBuff()
         {
             lock(lockObject)
@@ -206,11 +230,15 @@ namespace ASCOM.LocalServer
         }
 
         /// <summary>
-        /// Example of handling connecting to and disconnection from the shared serial port.
+        /// Gets or sets the shared serial port connection state with reference counting.
         /// </summary>
         /// <remarks>
-        /// Needs error handling, the port name etc. needs to be set up first, this could be done by the driver checking Connected and if it's false setting up the port before setting connected to true.
-        /// It could also be put here.
+        /// <para>Set <c>true</c>: if this is the first connection (count == 0), configures and opens
+        /// the serial port (9600/8N1, 500ms timeout). Increments the connection count.</para>
+        /// <para>Set <c>false</c>: decrements the connection count. When the count reaches zero,
+        /// the serial port is closed.</para>
+        /// <para>Get: returns the underlying serial port's connected state.</para>
+        /// <para>All access is serialized via the shared lock object.</para>
         /// </remarks>
         public static bool Connected
         {
