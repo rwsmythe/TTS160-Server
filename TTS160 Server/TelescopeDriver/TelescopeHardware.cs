@@ -78,85 +78,218 @@ namespace ASCOM.TTS160.Telescope
     //
 
     /// <summary>
-    /// ASCOM Telescope Driver for TTS160.
+    /// Shared static hardware class for the TTS-160 Panther telescope mount.
+    /// Implements all actual telescope communication using the LX200 serial protocol.
+    /// A single serial connection is shared across all COM driver instances
+    /// (<see cref="TelescopeDriver"/>), which delegate their ASCOM method calls to this class.
+    /// Decorated with <see cref="HardwareClassAttribute"/> so that the ASCOM Local Server
+    /// correctly disposes hardware resources on shutdown.
     /// </summary>
     [HardwareClass()]
     internal static class TelescopeHardware
     {
         /// <summary>
-        /// ASCOM DeviceID (COM ProgID) for this driver.
-        /// The DeviceID is used by ASCOM applications to load the driver at runtime.
-        /// </summary>
-        /// This driver is intended to specifically support TTS-160 Panther mount, based on the LX200 protocol.
-        /// Driver description that displays in the ASCOM Chooser.
+        /// Current driver version string for the TTS-160 Panther mount ASCOM driver.
+        /// This driver is based on the LX200 serial protocol.
         /// </summary>
         private static readonly string driverVersion = "356.0.0";
 
         #region Default Profile values
-        internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
+
+        /// <summary>Profile key for the COM port used for serial communication with the mount.</summary>
+        internal static string comPortProfileName = "COM Port";
+        /// <summary>Default COM port. Typically overridden by the user in the setup dialog.</summary>
         internal static string comPortDefault = "COM1";
+
+        /// <summary>Profile key for enabling/disabling diagnostic trace logging.</summary>
         internal static string traceStateProfileName = "Trace Level";
+        /// <summary>Default trace state. "false" disables logging; "true" enables verbose logging to the ASCOM log directory.</summary>
         internal static string traceStateDefault = "false";
+
+        /// <summary>Profile key for the observer's site elevation in metres above sea level.</summary>
         internal static string siteElevationProfileName = "Site Elevation";
+        /// <summary>Default site elevation in metres. Zero assumes sea level.</summary>
         internal static string siteElevationDefault = "0";
+
+        /// <summary>Profile key for the post-slew settling time in seconds.</summary>
         internal static string SlewSettleTimeName = "Slew Settle Time";
+        /// <summary>Default settling time (1 second). Allows the mount to stabilize after a slew completes.</summary>
         internal static string SlewSettleTimeDefault = "1";
+
+        /// <summary>Profile key for the site latitude stored on the mount (degrees). Used to detect whether the mount has been configured.</summary>
         internal static string SiteLatitudeName = "Site Latitude";
+        /// <summary>Default latitude sentinel value (100). Out-of-range on purpose so the driver knows no valid latitude has been set.</summary>
         internal static string SiteLatitudeDefault = "100";
+
+        /// <summary>Profile key for the site longitude stored on the mount (degrees).</summary>
         internal static string SiteLongitudeName = "Site Longitude";
+        /// <summary>Default longitude sentinel value (200). Out-of-range on purpose so the driver knows no valid longitude has been set.</summary>
         internal static string SiteLongitudeDefault = "200";
+
+        /// <summary>Profile key controlling whether the driver synchronizes the mount's clock to the PC clock on connect.</summary>
         internal static string SyncTimeOnConnectName = "Sync Time on Connect";
+        /// <summary>Default is "true" — the mount clock is synced to PC time each time the driver connects.</summary>
         internal static string SyncTimeOnConnectDefault = "true";
+
+        /// <summary>Profile key for the guiding compensation mode. Controls azimuth pulse-guide compensation based on target altitude.</summary>
         internal static string GuideCompName = "Guiding Compensation";
+        /// <summary>Default guiding compensation mode (0 = disabled).</summary>
         internal static string GuideCompDefault = "0";
+
+        /// <summary>Profile key for the maximum allowed guiding compensation delta in milliseconds.</summary>
         internal static string GuideCompMaxDeltaName = "Guiding Compensation Max Delta";
+        /// <summary>Default maximum delta (1000 ms). Caps the azimuth pulse-guide extension to prevent runaway corrections.</summary>
         internal static string GuideCompMaxDeltaDefault = "1000";
+
+        /// <summary>Profile key for the guiding compensation buffer in milliseconds.</summary>
         internal static string GuideCompBufferName = "Guiding Compensation Buffer";
+        /// <summary>Default buffer (20 ms). Minimum additional time added to azimuth guide pulses when compensation is active.</summary>
         internal static string GuideCompBufferDefault = "20";
+
+        /// <summary>Profile key for whether pulse-guide commands are issued in the equatorial (topocentric) reference frame.</summary>
         internal static string PulseGuideEquFrameName = "PulseGuide Equatorial Frame";
+        /// <summary>Default is "true" — pulse guides use equatorial/topocentric frame rather than alt-az.</summary>
         internal static string PulseGuideEquFrameDefault = "true";
+
+        /// <summary>Profile key for enabling the driver-side site location override (ignores mount-reported lat/lon).</summary>
         internal static string DriverSiteOverrideName = "Driver Site Override";
+        /// <summary>Default is "false" — the driver reads site location from the mount.</summary>
         internal static string DriverSiteOverrideDefault = "false";
+
+        /// <summary>Profile key for the driver-override site latitude (degrees, -90 to +90).</summary>
         internal static string DriverSiteLatitudeName = "Driver Site Latitude";
+        /// <summary>Default override latitude (0 degrees).</summary>
         internal static string DriverSiteLatitudeDefault = "0";
+
+        /// <summary>Profile key for the driver-override site longitude (degrees, -180 to +180).</summary>
         internal static string DriverSiteLongitudeName = "Driver Site Longitude";
+        /// <summary>Default override longitude (0 degrees).</summary>
         internal static string DriverSiteLongitudeDefault = "0";
-        internal static string PulseGuideDurationSynchronousName = "Synchronous PulseGuide Duration"; //Enforces Synchronous PulseGuiding
-        internal static string PulseGuideDurationSynchronousDefault = "false"; 
+
+        /// <summary>Profile key for forcing pulse-guide commands to execute synchronously (blocks until complete).</summary>
+        internal static string PulseGuideDurationSynchronousName = "Synchronous PulseGuide Duration";
+        /// <summary>Default is "false" — pulse guides run asynchronously so the caller is not blocked.</summary>
+        internal static string PulseGuideDurationSynchronousDefault = "false";
+
+        /// <summary>Profile key for enabling align-on-sync mode, which builds a pointing model from sync points.</summary>
         internal static string AlignOnSyncEnabledName = "Align on Sync Mode";
+        /// <summary>Default is "false" — standard sync behavior without building a multi-point alignment model.</summary>
         internal static string AlignOnSyncEnabledDefault = "false";
+
+        /// <summary>Profile key for the number of sync points collected for align-on-sync mode.</summary>
         internal static string AlignOnSyncPointsName = "Align on Sync Mode Sync Points";
+        /// <summary>Default is "0" — no sync points recorded yet.</summary>
         internal static string AlignOnSyncPointsDefault = "0";
+
+        /// <summary>Profile key for enabling a user-defined park location instead of the default home position.</summary>
         internal static string SetParkLocName = "Set Park Location";
+        /// <summary>Default is "false" — the mount parks at its default home position.</summary>
         internal static string SetParkLocDefault = "false";
+
+        /// <summary>Profile key indicating whether the mount is currently in a parked state.</summary>
         internal static string ParkLocName = "Park Location";
+        /// <summary>Default is "false" — the mount starts in an unparked state.</summary>
         internal static string ParkLocDefault = "false";
+
+        /// <summary>Profile key for the custom park position altitude (degrees, 0 to 90).</summary>
         internal static string ParkLocAltName = "Park Location Altitude";
+        /// <summary>Default park altitude (0 degrees — horizon).</summary>
         internal static string ParkLocAltDefault = "0";
+
+        /// <summary>Profile key for the custom park position azimuth (degrees, 0 to 360).</summary>
         internal static string ParkLocAzName = "Park Location Azimuth";
+        /// <summary>Default park azimuth (180 degrees — due south).</summary>
         internal static string ParkLocAzDefault = "180";
+
         #endregion
 
         #region Constants
-        internal static int MOVEAXIS_WAIT_TIME = 2000; //minimum delay between moveaxis commands
-        internal static int SYNC_WAIT_TIME = 200; //delay time to ensure position is updated in mount following sync
+
+        /// <summary>
+        /// Minimum delay in milliseconds between successive MoveAxis commands.
+        /// Prevents the mount's serial command buffer from overflowing when rapid
+        /// MoveAxis calls are issued by the client application.
+        /// </summary>
+        internal static int MOVEAXIS_WAIT_TIME = 2000;
+
+        /// <summary>
+        /// Delay in milliseconds after a sync command before reading the mount's position.
+        /// Gives the mount time to update its internal position registers so subsequent
+        /// position queries return the corrected coordinates.
+        /// </summary>
+        internal static int SYNC_WAIT_TIME = 200;
+
+        /// <summary>
+        /// Flag indicating whether the connected mount is running development-level firmware
+        /// (version 355 or later). Set at runtime during the connection handshake based on
+        /// the firmware version string reported by the mount; enables additional features
+        /// available only in newer firmware.
+        /// </summary>
         internal static bool DEV_FIRMWARE = false;
+
         #endregion
 
         #region Variable Declarations
-        private static string DriverProgId = ""; // ASCOM DeviceID (COM ProgID) for this driver, the value is set by the driver's class initialiser.
-        private static string DriverDescription = ""; // The value is set by the driver's class initialiser.
-        private static bool connectedState; // Local server's connected state
-        private static bool runOnce = false; // Flag to enable "one-off" activities only to run once.
-        private static bool connecting; // Completion variable for use with the Connect and Disconnect methods
-        internal static Util utilities; // ASCOM Utilities object for use as required
-        internal static AstroUtils astroUtils;  //Used for RA Conditioning
-        internal static AstroUtilities astroUtilities; // ASCOM AstroUtilities object for use as required
-        internal static Utilities.TraceLogger tl; // Local server's trace logger object for diagnostic log with information that you specify
-        internal static Transform T;  // Variable to provide coordinate Transforms
-        internal static readonly object LockObject = new object();  // object used for locking to prevent multiple drivers accessing common code at the same time
-        internal static ProfileProperties profileProperties = new ProfileProperties(); //Accessible profile to apply changes to
+
+        /// <summary>ASCOM DeviceID (COM ProgID) for this driver. Set once during the driver's static initializer.</summary>
+        private static string DriverProgId = "";
+
+        /// <summary>Human-readable driver description shown in the ASCOM Chooser. Set once during the driver's static initializer.</summary>
+        private static string DriverDescription = "";
+
+        /// <summary>
+        /// Indicates whether the local server currently has an active serial connection to the mount.
+        /// Shared across all COM driver instances; access should be synchronized via <see cref="LockObject"/>.
+        /// </summary>
+        private static bool connectedState;
+
+        /// <summary>
+        /// Guard flag ensuring one-time initialization logic (e.g., firmware detection) executes
+        /// only on the first connection and is not repeated on subsequent connects.
+        /// </summary>
+        private static bool runOnce = false;
+
+        /// <summary>
+        /// Indicates that a connect or disconnect operation is currently in progress.
+        /// Used to prevent re-entrant connection attempts from multiple COM clients.
+        /// </summary>
+        private static bool connecting;
+
+        /// <summary>ASCOM Utilities helper. Provides general-purpose utility methods (e.g., time conversions).</summary>
+        internal static Util utilities;
+
+        /// <summary>ASCOM AstroUtils instance used for Right Ascension conditioning and related calculations.</summary>
+        internal static AstroUtils astroUtils;
+
+        /// <summary>ASCOM AstroUtilities instance providing additional astronomical calculation methods.</summary>
+        internal static AstroUtilities astroUtilities;
+
+        /// <summary>
+        /// Trace logger for writing diagnostic information to the ASCOM log directory.
+        /// Controlled by the "Trace Level" profile setting; shared across all COM driver instances.
+        /// </summary>
+        internal static Utilities.TraceLogger tl;
+
+        /// <summary>ASCOM Transform instance used to convert between coordinate systems (e.g., J2000 to topocentric).</summary>
+        internal static Transform T;
+
+        /// <summary>
+        /// Synchronization object used to serialize access to shared state and serial port
+        /// communication, preventing concurrent calls from multiple COM driver instances
+        /// from corrupting the command/response sequence.
+        /// </summary>
+        internal static readonly object LockObject = new object();
+
+        /// <summary>In-memory copy of the persisted ASCOM Profile settings. Modified via the setup dialog and applied on connect.</summary>
+        internal static ProfileProperties profileProperties = new ProfileProperties();
+
+        /// <summary>
+        /// List of GUIDs identifying each connected COM driver instance.
+        /// Used to track how many clients are connected so the serial port is only
+        /// closed when the last client disconnects.
+        /// </summary>
         private static List<Guid> uniqueIds = new List<Guid>();
+
         #endregion
 
         /// <summary>
