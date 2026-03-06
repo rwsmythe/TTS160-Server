@@ -1311,6 +1311,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The alignment mode of the mount (Alt/Az, Polar, German Polar).
         /// </summary>
+        /// <remarks>
+        /// The TTS-160 always reports <see cref="AlignmentModes.algAltAz"/> (altitude-azimuth mount).
+        /// The commented-out code shows the LX200 <c>:GW#</c> command could query this from the mount,
+        /// but the value is hardcoded since the TTS-160 is always Alt/Az.
+        /// </remarks>
         internal static AlignmentModes AlignmentMode
         {
             get
@@ -1338,8 +1343,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The Altitude above the local horizon of the telescope's current position (degrees, positive up)
+        /// The altitude above the local horizon of the telescope's current position (degrees, positive up).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>On advanced firmware (>= 355), queries the mount via <c>:*GA#</c> which returns altitude
+        /// in radians for maximum precision, then converts to degrees. On legacy firmware, uses the standard
+        /// LX200 <c>:GA#</c> command which returns DMS format.</para>
+        /// </remarks>
         internal static double Altitude
         {
             get
@@ -1381,8 +1392,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The area of the telescope's aperture, taking into account any obstructions (square meters)
+        /// The area of the telescope's aperture, taking into account any obstructions (square meters).
         /// </summary>
+        /// <exception cref="PropertyNotImplementedException">Always thrown; the TTS-160 is a mount, not an OTA.</exception>
         internal static double ApertureArea
         {
             get
@@ -1393,8 +1405,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The telescope's effective aperture diameter (meters)
+        /// The telescope's effective aperture diameter (meters).
         /// </summary>
+        /// <exception cref="PropertyNotImplementedException">Always thrown; the TTS-160 is a mount, not an OTA.</exception>
         internal static double ApertureDiameter
         {
             get
@@ -1418,8 +1431,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// True if the telescope has been put into the parked state by the <see cref="Park" /> method. Set False by calling the Unpark() method.
+        /// True if the telescope has been put into the parked state by the <see cref="Park" /> method.
         /// </summary>
+        /// <remarks>
+        /// Queries the mount's park status via <c>:*Pq#</c> command (boolean response)
+        /// on every read, ensuring the value reflects actual hardware state.
+        /// </remarks>
         internal static bool AtPark
         {
             get
@@ -1465,6 +1482,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The azimuth at the local horizon of the telescope's current position (degrees, North-referenced, positive East/clockwise).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (0 to 360), where 0 = North, 90 = East, 180 = South, 270 = West.</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GZ#</c> (radians, max precision).
+        /// On legacy firmware, uses <c>:GZ#</c> (DMS format).</para>
+        /// </remarks>
         internal static double Azimuth
         {
             get
@@ -1509,6 +1531,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if this telescope is capable of programmed finding its home position (<see cref="FindHome" /> method).
         /// </summary>
+        /// <remarks>
+        /// Returns <c>true</c>. The TTS-160 home position is defined as azimuth 180° (south), altitude ~0°.
+        /// Home finding is implemented in software by slewing to those coordinates.
+        /// </remarks>
         internal static bool CanFindHome
         {
             get
@@ -1531,8 +1557,11 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// True if this telescope can move the requested axis
+        /// True if this telescope can move the requested axis.
         /// </summary>
+        /// <param name="Axis">The axis to query.</param>
+        /// <returns><c>true</c> for primary (azimuth) and secondary (altitude) axes; <c>false</c> for tertiary.</returns>
+        /// <exception cref="InvalidValueException">Thrown if <paramref name="Axis"/> is not a valid <see cref="TelescopeAxes"/> value.</exception>
         internal static bool CanMoveAxis(TelescopeAxes Axis)
         {
             try
@@ -1605,6 +1634,9 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if the <see cref="DeclinationRate" /> property can be changed to provide offset tracking in the declination axis.
         /// </summary>
+        /// <remarks>
+        /// Returns <c>true</c>. Offset tracking rates are supported via the <c>:*SD</c> command on firmware >= 355.
+        /// </remarks>
         internal static bool CanSetDeclinationRate
         {
             get
@@ -1673,6 +1705,9 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if the <see cref="SideOfPier" /> property can be set, meaning that the mount can be forced to flip.
         /// </summary>
+        /// <remarks>
+        /// Returns <c>false</c>. The TTS-160 is an Alt/Az mount and does not support pier side flipping.
+        /// </remarks>
         internal static bool CanSetPierSide
         {
             get
@@ -1877,6 +1912,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if this telescope is capable of programmed unparking (<see cref="Unpark" /> method).
         /// </summary>
+        /// <remarks>
+        /// Returns <c>false</c>. The TTS-160 does not implement a dedicated unpark command;
+        /// unparking is handled implicitly by the mount on reconnection.
+        /// </remarks>
         internal static bool CanUnpark
         {
             get
@@ -1897,9 +1936,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination (degrees) of the telescope's current equatorial coordinates, in the coordinate system given by the <see cref="EquatorialSystem" /> property.
-        /// Reading the property will raise an error if the value is unavailable.
+        /// The declination (degrees) of the telescope's current equatorial coordinates,
+        /// in the coordinate system given by the <see cref="EquatorialSystem" /> property.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GD#</c> (radians, max precision).
+        /// On legacy firmware, uses <c>:GD#</c> (DMS format).</para>
+        /// </remarks>
         internal static double Declination
         {
             get
@@ -1943,8 +1987,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination tracking rate (arcseconds per SI second, default = 0.0)
+        /// The declination tracking rate offset from zero (arcseconds per SI second, default = 0.0).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: arcseconds per SI second. Positive values move north, negative south.</para>
+        /// <para>Get: queries mount via <c>:*RD#</c> command. Set: sends <c>:*SD{value}#</c>.</para>
+        /// <para>Valid range: [-99.9999999999, 99.9999999999] arcsec/sec.</para>
+        /// <para>Requires <see cref="TrackingRate"/> to be <see cref="DriveRates.driveSidereal"/>.</para>
+        /// </remarks>
         internal static double DeclinationRate
         {
             get
@@ -2009,8 +2059,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Predict side of pier for German equatorial mounts at the provided coordinates
+        /// Predicts the side of pier for a given set of equatorial coordinates.
         /// </summary>
+        /// <param name="rightAscension">Target right ascension in hours.</param>
+        /// <param name="Declination">Target declination in degrees (unused — pier side depends only on RA).</param>
+        /// <returns>The predicted <see cref="PierSide"/> at the target coordinates.</returns>
+        /// <remarks>
+        /// Although the TTS-160 is an Alt/Az mount and doesn't have a physical pier side,
+        /// this is computed for ASCOM compliance using <see cref="CalculateSideOfPier"/>.
+        /// </remarks>
         internal static PierSide DestinationSideOfPier(double rightAscension, double Declination)
         {
 
@@ -2052,8 +2109,13 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Equatorial coordinate system used by this telescope (e.g. Topocentric or J2000).
+        /// Equatorial coordinate system used by this telescope (Topocentric or J2000).
         /// </summary>
+        /// <remarks>
+        /// Queries the mount via <c>:*E#</c> command. Returns <c>true</c> for topocentric,
+        /// <c>false</c> for J2000. The coordinate epoch affects how RA/Dec values are interpreted
+        /// by ASCOM clients for coordinate transforms and plate solving.
+        /// </remarks>
         internal static EquatorialCoordinateType EquatorialSystem
         {
             get
@@ -2193,8 +2255,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The current Declination movement rate offset for telescope guiding (degrees/sec)
+        /// The current declination movement rate offset for telescope guiding (degrees/sec).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees per second.</para>
+        /// <para>Get: queries the mount's guide rate index via <c>:*gRG#</c>, then maps the index (0-4)
+        /// to a rate in deg/sec: 0→1"/s, 1→3"/s, 2→5"/s, 3→10"/s, 4→20"/s (each ÷3600 for deg/sec).</para>
+        /// <para>Set: converts the input from deg/sec to arcsec/sec (×3600), then maps to the nearest
+        /// rate index and sends <c>:gRS{value}#</c> to the mount.</para>
+        /// </remarks>
         internal static double GuideRateDeclination
         {
             get
@@ -2271,8 +2340,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The current Right Ascension movement rate offset for telescope guiding (degrees/sec)
+        /// The current right ascension movement rate offset for telescope guiding (degrees/sec).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees per second. Uses the same mount guide rate as <see cref="GuideRateDeclination"/>
+        /// since the TTS-160 has a single guide rate setting that applies to both axes.</para>
+        /// </remarks>
         internal static double GuideRateRightAscension
         {
             get
@@ -2346,11 +2419,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// True if a <see cref="PulseGuide" /> command is in progress, False otherwise
+        /// True if a <see cref="PulseGuide" /> command is in progress, False otherwise.
         /// </summary>
+        /// <remarks>
+        /// Tracked in the driver since the TTS-160 does not provide a pulse guide status query.
+        /// Completion is detected by comparing elapsed time against
+        /// <see cref="MiscResources.PulseGuideDuration"/> and <see cref="MiscResources.PulseGuideStart"/>.
+        /// </remarks>
         internal static bool IsPulseGuiding
         {
-            //Pulse Guide query is not implemented in TTS-160 => track in driver
             get
             {
                 try
@@ -3281,8 +3358,14 @@ namespace ASCOM.TTS160.Telescope
 
         /// <summary>
         /// The right ascension (hours) of the telescope's current equatorial coordinates,
-        /// in the coordinate system given by the EquatorialSystem property
+        /// in the coordinate system given by the <see cref="EquatorialSystem"/> property.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24).</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GR#</c> (radians, max precision),
+        /// then converts radians → degrees → hours (÷15). Result is conditioned to [0,24) range.
+        /// On legacy firmware, uses <c>:GR#</c> (HMS format).</para>
+        /// </remarks>
         internal static double RightAscension
         {
             get
@@ -3324,8 +3407,16 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The right ascension tracking rate offset from sidereal (seconds per sidereal second, default = 0.0)
+        /// The right ascension tracking rate offset from sidereal (seconds per sidereal second, default = 0.0).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: seconds of RA per sidereal second.</para>
+        /// <para>Get: queries mount via <c>:*RR#</c> (returns arcsec/sec), then converts to sidereal seconds
+        /// by multiplying by 0.9972695677 (ratio of solar to sidereal day).</para>
+        /// <para>Set: converts from sidereal sec/sec to arcsec/sec by multiplying by 1.00273790935,
+        /// then sends <c>:*SR{value}#</c>. Valid range: [-99.9999999999, 99.9999999999] arcsec/sec.</para>
+        /// <para>Requires <see cref="TrackingRate"/> to be <see cref="DriveRates.driveSidereal"/>.</para>
+        /// </remarks>
         internal static double RightAscensionRate
         {
             get
@@ -3422,6 +3513,12 @@ namespace ASCOM.TTS160.Telescope
 
         }
 
+        /// <summary>
+        /// Calculates the side of pier based on the hour angle of the given right ascension.
+        /// </summary>
+        /// <param name="rightAscension">Right ascension in hours.</param>
+        /// <returns><see cref="PierSide.pierEast"/> if hour angle > 0 (object west of meridian),
+        /// <see cref="PierSide.pierWest"/> otherwise.</returns>
         internal static PierSide CalculateSideOfPier(double rightAscension)
         {
             double hourAngle = astroUtils.ConditionHA(SiderealTime - rightAscension);
@@ -3455,8 +3552,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal)
+        /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24).</para>
+        /// <para>Queries the mount's GMST via LX200 <c>:GS#</c> command, then converts to local sidereal
+        /// time by adding the site longitude offset (longitude / 360 * 24). Result conditioned to [0,24).</para>
+        /// <para>Also calls <see cref="SlewingInternalUpdate"/> to refresh slewing state on each read.</para>
+        /// </remarks>
         internal static double SiderealTime
         {
             get
@@ -3483,8 +3586,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The elevation above mean sea level (meters) of the site at which the telescope is located
+        /// The elevation above mean sea level (meters) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: meters. Valid range: -300 to 10000.</para>
+        /// <para>Stored in the ASCOM Profile; not queried from the mount hardware.</para>
+        /// </remarks>
         internal static double SiteElevation
         {
             get
@@ -3508,8 +3615,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The geodetic(map) latitude (degrees, positive North, WGS84) of the site at which the telescope is located.
+        /// The geodetic (map) latitude (degrees, positive North, WGS84) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>If DriverSiteOverride is enabled in the profile, returns the driver-configured value.
+        /// Otherwise, queries the mount via LX200 <c>:Gt#</c> (or <c>:*Gt#</c> on advanced firmware).</para>
+        /// <para>See <see cref="SiteLatitudeInit"/> for the variant that always reads from the mount.</para>
+        /// </remarks>
         internal static double SiteLatitude
         {
             get
@@ -3565,6 +3678,13 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Reads the site latitude directly from the mount hardware, bypassing any driver override.
+        /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees. Always queries the mount via <c>:Gt#</c> (or <c>:*Gt#</c> on advanced firmware).</para>
+        /// <para>Used during disconnect to save the mount's actual position back to the ASCOM Profile.</para>
+        /// </remarks>
         internal static double SiteLatitudeInit
         {
             get
@@ -3609,6 +3729,13 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The longitude (degrees, positive East, WGS84) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-180 to +180), positive East.</para>
+        /// <para>If DriverSiteOverride is enabled in the profile, returns the driver-configured value.
+        /// Otherwise, queries mount via <c>:Gg#</c> (or <c>:*Gg#</c> on advanced firmware).</para>
+        /// <para>Note: the LX200 protocol returns longitude as east-negative, so the value is negated
+        /// to convert to the ASCOM convention (west-negative/east-positive).</para>
+        /// </remarks>
         internal static double SiteLongitude
         {
             get
@@ -3665,6 +3792,14 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Reads the site longitude directly from the mount hardware, bypassing any driver override.
+        /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (west-negative/east-positive). Always queries the mount via
+        /// <c>:Gg#</c> (or <c>:*Gg#</c> on advanced firmware), with the same east-negative inversion.</para>
+        /// <para>Used during disconnect to save the mount's actual position back to the ASCOM Profile.</para>
+        /// </remarks>
         internal static double SiteLongitudeInit
         {
             get
@@ -4934,9 +5069,13 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Query the mount for the current Epoch setting. true = JNow, false = J2000
+        /// Queries the mount for its current coordinate epoch setting.
         /// </summary>
-
+        /// <returns><c>true</c> for topocentric (JNow), <c>false</c> for J2000.</returns>
+        /// <remarks>
+        /// Uses the <c>:*E#</c> command. This determines whether coordinate conversions
+        /// (topocentric ↔ J2000) are needed when setting slew/sync targets.
+        /// </remarks>
         internal static bool MountEpoch
         {
             get
@@ -4962,8 +5101,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination (degrees, positive North) for the target of an equatorial slew or sync operation
+        /// The declination (degrees, positive North) for the target of an equatorial slew or sync operation.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90). Simulated in the driver via <see cref="MiscResources"/>
+        /// since the mount does not provide a target query command.</para>
+        /// <para>Set: sends the target to the mount via LX200 <c>:Sd{DMS}#</c> command and updates
+        /// <see cref="MiscResources.Target"/>. Also sets <see cref="MiscResources.IsTargetSet"/>
+        /// when both RA and Dec targets have been set.</para>
+        /// </remarks>
         internal static double TargetDeclination
         {
 
@@ -5044,8 +5190,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The right ascension (hours) for the target of an equatorial slew or sync operation
+        /// The right ascension (hours) for the target of an equatorial slew or sync operation.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24). Simulated in the driver via <see cref="MiscResources"/>.</para>
+        /// <para>Set: sends the target to the mount via LX200 <c>:Sr{HMS}#</c> command.</para>
+        /// </remarks>
         internal static double TargetRightAscension
         {
             get
@@ -5115,6 +5265,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The state of the telescope's sidereal tracking drive.
         /// </summary>
+        /// <remarks>
+        /// <para>Get: queries mount via <c>:GW#</c> and checks if the second character is 'T' (tracking).</para>
+        /// <para>Set: sends <c>:T1#</c> to enable or <c>:T0#</c> to disable tracking.
+        /// Cannot be changed while slewing.</para>
+        /// </remarks>
         internal static bool Tracking
         {
             get
@@ -5167,6 +5322,11 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Restores tracking state after a slew or MoveAxis operation completes,
+        /// bypassing the <see cref="Tracking"/> setter's slewing check.
+        /// </summary>
+        /// <param name="TrackSetFollower"><c>true</c> to enable tracking, <c>false</c> to disable.</param>
         internal static void TrackSetFollower(bool TrackSetFollower)
         {
             try
@@ -5184,6 +5344,10 @@ namespace ASCOM.TTS160.Telescope
 
         }
 
+        /// <summary>
+        /// Forces a read of the <see cref="Slewing"/> property to update internal settle/stop state.
+        /// Called by properties that need fresh slewing state (e.g., <see cref="SiderealTime"/>).
+        /// </summary>
         internal static void SlewingInternalUpdate()
         {
             try
@@ -5206,8 +5370,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The current tracking rate of the telescope's sidereal drive
+        /// The current tracking rate of the telescope's sidereal drive.
         /// </summary>
+        /// <remarks>
+        /// <para>Get: queries mount via <c>:*TRG#</c> — returns 0=sidereal, 1=lunar, 2=solar.</para>
+        /// <para>Set: sends LX200 commands <c>:TQ#</c> (sidereal), <c>:TL#</c> (lunar), or <c>:TS#</c> (solar).</para>
+        /// </remarks>
         internal static DriveRates TrackingRate
         {
             get
