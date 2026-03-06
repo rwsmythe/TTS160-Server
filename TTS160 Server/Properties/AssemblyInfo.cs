@@ -8,12 +8,12 @@ using System.Runtime.InteropServices;
 //
 // TODO - Add your authorship information here
 [assembly: AssemblyTitle("ASCOM.TTS160.Telescope")]
-[assembly: AssemblyDescription("ASCOM Local Server Telescope driver for TTS160 v. 355.0.0RC1")]
+[assembly: AssemblyDescription("ASCOM Local Server Telescope driver for TTS160 v. 356.0.0")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("The ASCOM Initiative")]
 [assembly: AssemblyProduct("ASCOM Local Server Telescope driver for TTS160")]
 [assembly: AssemblyCopyright("Copyright © 2024 The ASCOM Initiative")]
-[assembly: AssemblyTrademark("")]
+[assembly: AssemblyTrademark("Track The Stars")]
 [assembly: AssemblyCulture("")]
 
 // Setting ComVisible to false makes the types in this assembly not visible 
@@ -31,4 +31,4 @@ using System.Runtime.InteropServices;
 // by using the '*' as shown below:
 
 [assembly: AssemblyVersion("7.0.0.0")]
-[assembly: AssemblyFileVersion("355.0.0.1")]
+[assembly: AssemblyFileVersion("356.0.0.0")]

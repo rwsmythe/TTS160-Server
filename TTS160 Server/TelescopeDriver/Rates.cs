@@ -11,14 +11,10 @@ using System.Threading;
 namespace ASCOM.TTS160
 {
     #region Rate class
-    //
-    // The Rate class implements IRate, and is used to hold values
-    // for AxisRates. You do not need to change this class.
-    //
-    // The Guid attribute sets the CLSID for ASCOM.TTS160.Rate
-    // The ClassInterface/None attribute prevents an empty interface called
-    // _Rate from being created and used as the [default] interface
-    //
+    /// <summary>
+    /// Implements <see cref="IRate"/> to represent a single min/max rate range for axis motion.
+    /// Used as elements within <see cref="AxisRates"/> collections.
+    /// </summary>
     [Guid("1ccf1f47-f156-45f0-9eab-7e08e1250ee0")]
     [ClassInterface(ClassInterfaceType.None)]
     [ComVisible(true)]
@@ -61,15 +57,16 @@ namespace ASCOM.TTS160
     #endregion
 
     #region AxisRates
-    //
-    // AxisRates is a strongly-typed collection that must be enumerable by
-    // both COM and .NET. The IAxisRates and IEnumerable interfaces provide
-    // this polymorphism. 
-    //
-    // The Guid attribute sets the CLSID for ASCOM.TTS160.AxisRates
-    // The ClassInterface/None attribute prevents an empty interface called
-    // _AxisRates from being created and used as the [default] interface
-    //
+    /// <summary>
+    /// COM-visible collection of <see cref="Rate"/> objects for a given <see cref="TelescopeAxes"/>.
+    /// Returned by <see cref="Telescope.TelescopeHardware.AxisRates(TelescopeAxes)"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Rate arrays differ by firmware version: advanced firmware (&gt;= 355) exposes a single
+    /// continuous range (0–3.5 deg/s), while legacy firmware exposes discrete guide and slew rates.</para>
+    /// <para>The tertiary axis returns an empty array (no rotator support).</para>
+    /// <para>The indexer is 1-based per the ASCOM IAxisRates specification.</para>
+    /// </remarks>
     [Guid("682da1b9-bcb8-4a8d-9a97-2ae134d1cd22")]
     [ClassInterface(ClassInterfaceType.None)]
     [ComVisible(true)]
@@ -166,19 +163,15 @@ namespace ASCOM.TTS160
     #endregion
 
     #region TrackingRates
-    //
-    // TrackingRates is a strongly-typed collection that must be enumerable by
-    // both COM and .NET. The ITrackingRates and IEnumerable interfaces provide
-    // this polymorphism. 
-    //
-    // The Guid attribute sets the CLSID for ASCOM.TTS160.TrackingRates
-    // The ClassInterface/None attribute prevents an empty interface called
-    // _TrackingRates from being created and used as the [default] interface
-    //
-    // This class is implemented in this way so that applications based on .NET 3.5
-    // will work with this .NET 4.0 object.  Changes to this have proved to be challenging
-    // and it is strongly suggested that it isn't changed.
-    //
+    /// <summary>
+    /// COM-visible collection of supported tracking rates: sidereal, lunar, and solar.
+    /// Implements both <see cref="ITrackingRates"/> and <see cref="IEnumerator"/> for
+    /// COM and .NET enumeration compatibility.
+    /// </summary>
+    /// <remarks>
+    /// <para>Uses <see cref="ThreadLocal{T}"/> for thread-safe enumeration position tracking.</para>
+    /// <para>The indexer is 1-based per the ASCOM ITrackingRates specification.</para>
+    /// </remarks>
     [Guid("4856f3d8-abc5-40f1-bd60-87b9159d901c")]
     [ClassInterface(ClassInterfaceType.None)]
     [ComVisible(true)]

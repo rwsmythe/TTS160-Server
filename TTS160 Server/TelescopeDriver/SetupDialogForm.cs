@@ -8,9 +8,20 @@ using System.Text;
 using System.Windows.Forms;
 using ASCOM.TTS160.Telescope;
 using Microsoft.VisualBasic;
+using System.Management;
 
 namespace ASCOM.TTS160
 {
+    /// <summary>
+    /// ASCOM setup dialog for the TTS-160 driver configuration.
+    /// Shown when the user selects "Properties" in the ASCOM Chooser or clicks Setup in a client application.
+    /// </summary>
+    /// <remarks>
+    /// <para>Reads/writes driver settings via <see cref="ProfileProperties"/>. Settings include COM port,
+    /// site coordinates, slew settle time, guide compensation parameters, Align-on-Sync, park location,
+    /// and developer/troubleshooting options.</para>
+    /// <para>Not registered for COM — only used internally by the driver.</para>
+    /// </remarks>
     [ComVisible(false)]					// Form not registered for COM!
     public partial class SetupDialogForm : Form
     {
@@ -18,21 +29,29 @@ namespace ASCOM.TTS160
 
         private Util utilities;
 
+        /// <summary>
+        /// Initializes the setup dialog with the driver's trace logger and populates the UI
+        /// with current settings from the ASCOM Profile.
+        /// </summary>
+        /// <param name="tlDriver">The driver's trace logger instance for diagnostic output.</param>
         public SetupDialogForm(TraceLogger tlDriver)
         {
             InitializeComponent();
 
             // Save the provided trace logger for use within the setup dialogue
             tl = tlDriver;
+            // Set the title of the form to include the driver name
+            this.Text = TelescopeHardware.Description + " Setup";
 
             // Initialise current values of user settings from the ASCOM Profile
             InitUI();
         }
 
-        private void cmdOK_Click(object sender, EventArgs e) // OK button event handler
+        /// <summary>
+        /// OK button handler. Validates driver site coordinate format (DMS) and saves the selected COM port.
+        /// </summary>
+        private void cmdOK_Click(object sender, EventArgs e)
         {
-            // Place any validation constraint checks here
-            // Update the state variables with results from the dialogue
             try
             {
                 TelescopeHardware.profileProperties.ComPort = (string)comboBoxComPort.SelectedItem;
@@ -54,12 +73,14 @@ namespace ASCOM.TTS160
             tl.Enabled = chkTrace.Checked;
         }
 
-        private void cmdCancel_Click(object sender, EventArgs e) // Cancel button event handler
+        /// <summary>Cancel button handler. Closes the dialog without saving changes.</summary>
+        private void cmdCancel_Click(object sender, EventArgs e)
         {
             Close();
         }
 
-        private void BrowseToAscom(object sender, EventArgs e) // Click on ASCOM logo event handler
+        /// <summary>Opens the ASCOM Standards website when the ASCOM logo is clicked.</summary>
+        private void BrowseToAscom(object sender, EventArgs e)
         {
             try
             {
@@ -76,6 +97,9 @@ namespace ASCOM.TTS160
             }
         }
 
+        /// <summary>
+        /// Populates the COM port combo box with available ports and selects the currently configured one.
+        /// </summary>
         private void InitUI()
         {
             chkTrace.Checked = tl.Enabled;
@@ -116,47 +140,27 @@ namespace ASCOM.TTS160
                 SlewSetTimeTxt.Text = SlewSetTimeTxt.Text.Remove(SlewSetTimeTxt.Text.Length - 1);
             }
         }
+        /// <summary>
+        /// Reads all UI control values and builds a new <see cref="ProfileProperties"/> instance.
+        /// </summary>
+        /// <param name="CurProfile">The current profile, used to preserve site lat/long values
+        /// (which are read from the mount, not from UI controls).</param>
+        /// <returns>A new <see cref="ProfileProperties"/> populated from the dialog's UI state.</returns>
         public ProfileProperties GetProfile(ProfileProperties CurProfile)
         {
 
-            int CompatMode = 0;
             int GuideComp = 0;
-            int DefaultTracking = 0;
-            bool CanSetTrackingOverride = false;
-            bool CanSetGuideRatesOverride = false;
-            int HCGuideRate = 2;
             int AlignOnSyncPoints = 0;
             bool AlignOnSyncEnabled = false;
+            bool ParkLoc = false;
+            bool SetParkLoc = false;
 
             utilities = new Util();
-
-            if (mpmBtn.Checked)
-            {
-                CompatMode = 1;
-                CanSetTrackingOverride = true;
-                CanSetGuideRatesOverride = true;
-            }
 
             if (radioButtonGuidingAlt.Checked)
             {
                 GuideComp = 1;
             }
-
-            if (radioSidereal.Checked) { DefaultTracking = 0; }
-            else
-            if (radioLunar.Checked) { DefaultTracking = 1; }
-            else
-            if (radioSolar.Checked) { DefaultTracking = 2; }
-
-            if (radioButtonGR0.Checked) { HCGuideRate = 0; }
-            else
-            if (radioButtonGR1.Checked) { HCGuideRate = 1; }
-            else
-            if (radioButtonGR2.Checked) { HCGuideRate = 2; }
-            else
-            if (radioButtonGR3.Checked) { HCGuideRate = 3; }
-            else
-            if (radioButtonGR4.Checked) { HCGuideRate = 4; }
 
             if (checkBoxAlignonSync.Checked)
             {
@@ -174,6 +178,9 @@ namespace ASCOM.TTS160
                 AlignOnSyncPoints = 0;
             }
 
+            if (radioButtonParkCustom.Checked) { ParkLoc = true; }
+            if (checkBoxParkUpdate.Checked) { SetParkLoc = true; }
+
             try
             {
                 double driversitelatbuff = utilities.DMSToDegrees(textBoxDriverSiteLat.Text);
@@ -188,22 +195,21 @@ namespace ASCOM.TTS160
                     SlewSettleTime = Int16.Parse(SlewSetTimeTxt.Text),
                     SiteLatitude = CurProfile.SiteLatitude,
                     SiteLongitude = CurProfile.SiteLongitude,
-                    CompatMode = CompatMode,
-                    CanSetTrackingOverride = CanSetTrackingOverride,
-                    CanSetGuideRatesOverride = CanSetGuideRatesOverride,
                     SyncTimeOnConnect = TimeSyncChk.Checked,
                     GuideComp = GuideComp,
                     GuideCompMaxDelta = Int32.Parse(textMaxDelta.Text),
                     GuideCompBuffer = Int32.Parse(textBuffer.Text),
-                    TrackingRateOnConnect = DefaultTracking,
                     PulseGuideEquFrame = checkBoxPulseGuideTopoEqu.Checked,
                     DriverSiteOverride = checkBoxDriverSiteOverride.Checked,
                     DriverSiteLatitude = driversitelatbuff,
                     DriverSiteLongitude = driversitelongbuff,
-                    HCGuideRate = HCGuideRate,
-                    PulseGuideDurationCompliant = checkBoxPulseGuideDuration.Checked,
+                    PulseGuideDurationSynchronous = checkBoxPulseGuideDuration.Checked,
                     AlignOnSyncEnabled = AlignOnSyncEnabled,
-                    AlignOnSyncPoints = AlignOnSyncPoints
+                    AlignOnSyncPoints = AlignOnSyncPoints,
+                    SetParkLoc = SetParkLoc,
+                    ParkLoc = ParkLoc,
+                    ParkLocAlt = Double.Parse(textBoxParkLocAlt.Text),
+                    ParkLocAz = Double.Parse(textBoxParkLocAz.Text)
                 };
 
                 return profileProperties;
@@ -217,6 +223,14 @@ namespace ASCOM.TTS160
 
         }
 
+        /// <summary>
+        /// Populates all UI controls from the given <see cref="ProfileProperties"/> settings.
+        /// </summary>
+        /// <param name="profileProperties">The settings to display in the dialog.</param>
+        /// <remarks>
+        /// Site latitude/longitude display "Not Yet Read" when they hold sentinel values
+        /// (100 for latitude, 200 for longitude), indicating the mount hasn't been queried yet.
+        /// </remarks>
         public void SetProfile(ProfileProperties profileProperties)
         {
 
@@ -248,18 +262,6 @@ namespace ASCOM.TTS160
                 SiteLonglbl.Text = utilities.DegreesToDMS(profileProperties.SiteLongitude,":",":","");
             }
 
-            switch (profileProperties.CompatMode)
-            {
-                case 0:
-                    noneBtn.Checked = true;
-                    mpmBtn.Checked = false;
-                    break;
-                case 1:
-                    noneBtn.Checked = false;
-                    mpmBtn.Checked = true;
-                    break;
-            }
-
             switch (profileProperties.GuideComp)
             {
                 case 0:
@@ -272,69 +274,6 @@ namespace ASCOM.TTS160
                     break;
             }
 
-            switch (profileProperties.TrackingRateOnConnect)
-            {
-                case 0:
-                    radioSidereal.Checked = true;
-                    radioLunar.Checked = false;
-                    radioSolar.Checked = false;
-                    break;
-                case 1:
-                    radioSidereal.Checked = false;
-                    radioLunar.Checked = true;
-                    radioSolar.Checked = false;
-                    break;
-                case 2:
-                    radioSidereal.Checked = false;
-                    radioLunar.Checked = false;
-                    radioSolar.Checked = true;
-                    break;
-
-            }
-
-            switch (profileProperties.HCGuideRate)
-            {
-                case 0:
-                    radioButtonGR0.Checked = true;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 1:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = true;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 2:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = true;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 3:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = true;
-                    radioButtonGR4.Checked = false;
-                    break;
-
-                case 4:
-                    radioButtonGR0.Checked = false;
-                    radioButtonGR1.Checked = false;
-                    radioButtonGR2.Checked = false;
-                    radioButtonGR3.Checked = false;
-                    radioButtonGR4.Checked = true;
-                    break;
-            }
-
             TimeSyncChk.Checked = profileProperties.SyncTimeOnConnect;
 
             textBoxDriverSiteLat.Text = utilities.DegreesToDMS(profileProperties.DriverSiteLatitude, ":", ":","", 1);
@@ -342,7 +281,7 @@ namespace ASCOM.TTS160
             checkBoxDriverSiteOverride.Checked = profileProperties.DriverSiteOverride;
 
             checkBoxPulseGuideTopoEqu.Checked = profileProperties.PulseGuideEquFrame;
-            checkBoxPulseGuideDuration.Checked = profileProperties.PulseGuideDurationCompliant;
+            checkBoxPulseGuideDuration.Checked = profileProperties.PulseGuideDurationSynchronous;
 
             radioButtonGuidingNone.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
             radioButtonGuidingAlt.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
@@ -365,6 +304,11 @@ namespace ASCOM.TTS160
                     break;
             }
 
+            radioButtonParkinPlace.Checked = !profileProperties.ParkLoc;
+            radioButtonParkCustom.Checked = profileProperties.ParkLoc;
+            checkBoxParkUpdate.Checked = profileProperties.SetParkLoc;
+            textBoxParkLocAlt.Text = profileProperties.ParkLocAlt.ToString();
+            textBoxParkLocAz.Text = profileProperties.ParkLocAz.ToString();
         }
 
         private void radioButtonGuidingEl_CheckedChanged(object sender, EventArgs e)
@@ -395,6 +339,10 @@ namespace ASCOM.TTS160
             }
         }
 
+        /// <summary>
+        /// When equatorial frame pulse guiding is enabled, disables the altitude compensation
+        /// controls (they are mutually exclusive — equatorial frame handles compensation internally).
+        /// </summary>
         private void checkBoxPulseGuideTopoEqu_CheckedChanged(object sender, EventArgs e)
         {
             if (checkBoxPulseGuideTopoEqu.Checked)
@@ -409,6 +357,10 @@ namespace ASCOM.TTS160
             textBuffer.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
         }
 
+        /// <summary>
+        /// Guards access to the developer/troubleshooting tab with a password prompt.
+        /// These options can cause erratic behavior and are intended for debugging only.
+        /// </summary>
         private void tabControl1_Selecting(object sender, TabControlCancelEventArgs e)
         {
             if (e.TabPage == tabPage2)
@@ -435,10 +387,14 @@ namespace ASCOM.TTS160
 
         }
 
+        /// <summary>
+        /// Queries WMI for COM port device information and displays it to help the user identify
+        /// which COM port corresponds to the TTS-160 mount.
+        /// </summary>
         private void buttonFindMount_Click(object sender, EventArgs e)
         {
 
-            Serial serial = new Serial();
+            /*Serial serial = new Serial();
 
             serial.Speed = SerialSpeed.ps9600;
             serial.Parity = SerialParity.None;
@@ -472,7 +428,48 @@ namespace ASCOM.TTS160
                 }
 
             }
-            labelMountDetect.Text = "Not Detected";
+            labelMountDetect.Text = "Not Detected";*/
+
+            StringBuilder portInfo = new StringBuilder();
+            portInfo.AppendLine("COM Port Device Information:\n");
+
+            try
+            {
+                var searcher = new ManagementObjectSearcher(
+                    "SELECT * FROM Win32_PnPEntity WHERE Caption LIKE '%(COM%'");
+
+                foreach (ManagementObject device in searcher.Get())
+                {
+                    portInfo.AppendLine($"Name: {device["Caption"]}");
+                    portInfo.AppendLine($"Device ID: {device["DeviceID"]}");
+                    portInfo.AppendLine($"Manufacturer: {device["Manufacturer"]}");
+                    portInfo.AppendLine($"Service: {device["Service"]}");
+                    portInfo.AppendLine($"Hardware ID: {((string[])device["HardwareID"])?[0]}");
+                    portInfo.AppendLine("--------------------------------");
+                }
+
+                if (portInfo.Length > 50) // Has content beyond header
+                {
+                    MessageBox.Show(portInfo.ToString(), "COM Port Information",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("No COM ports found.", "COM Port Information",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error querying COM ports: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
+        }
+
+        private void groupBox4_Enter(object sender, EventArgs e)
+        {
+
         }
     }
 

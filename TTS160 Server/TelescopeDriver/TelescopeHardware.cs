@@ -64,6 +64,7 @@ using ASCOM.Astrometry.AstroUtils;
 using System.Threading.Tasks;
 using ASCOM.Common.Helpers;
 using Microsoft.VisualBasic;
+using System.Linq.Expressions;
 
 namespace ASCOM.TTS160.Telescope
 {
@@ -77,85 +78,218 @@ namespace ASCOM.TTS160.Telescope
     //
 
     /// <summary>
-    /// ASCOM Telescope Driver for TTS160.
+    /// Shared static hardware class for the TTS-160 Panther telescope mount.
+    /// Implements all actual telescope communication using the LX200 serial protocol.
+    /// A single serial connection is shared across all COM driver instances
+    /// (<see cref="TelescopeDriver"/>), which delegate their ASCOM method calls to this class.
+    /// Decorated with <see cref="HardwareClassAttribute"/> so that the ASCOM Local Server
+    /// correctly disposes hardware resources on shutdown.
     /// </summary>
     [HardwareClass()]
     internal static class TelescopeHardware
     {
         /// <summary>
-        /// ASCOM DeviceID (COM ProgID) for this driver.
-        /// The DeviceID is used by ASCOM applications to load the driver at runtime.
+        /// Current driver version string for the TTS-160 Panther mount ASCOM driver.
+        /// This driver is based on the LX200 serial protocol.
         /// </summary>
-        /// This driver is intended to specifically support TTS-160 Panther mount, based on the LX200 protocol.
-        /// Driver description that displays in the ASCOM Chooser.
-        /// </summary>
-        private static readonly string driverVersion = "355.0.0";
+        private static readonly string driverVersion = "356.0.0";
 
         #region Default Profile values
-        internal static string comPortProfileName = "COM Port"; // Constants used for Profile persistence
+
+        /// <summary>Profile key for the COM port used for serial communication with the mount.</summary>
+        internal static string comPortProfileName = "COM Port";
+        /// <summary>Default COM port. Typically overridden by the user in the setup dialog.</summary>
         internal static string comPortDefault = "COM1";
+
+        /// <summary>Profile key for enabling/disabling diagnostic trace logging.</summary>
         internal static string traceStateProfileName = "Trace Level";
+        /// <summary>Default trace state. "false" disables logging; "true" enables verbose logging to the ASCOM log directory.</summary>
         internal static string traceStateDefault = "false";
+
+        /// <summary>Profile key for the observer's site elevation in metres above sea level.</summary>
         internal static string siteElevationProfileName = "Site Elevation";
+        /// <summary>Default site elevation in metres. Zero assumes sea level.</summary>
         internal static string siteElevationDefault = "0";
+
+        /// <summary>Profile key for the post-slew settling time in seconds.</summary>
         internal static string SlewSettleTimeName = "Slew Settle Time";
+        /// <summary>Default settling time (1 second). Allows the mount to stabilize after a slew completes.</summary>
         internal static string SlewSettleTimeDefault = "1";
+
+        /// <summary>Profile key for the site latitude stored on the mount (degrees). Used to detect whether the mount has been configured.</summary>
         internal static string SiteLatitudeName = "Site Latitude";
+        /// <summary>Default latitude sentinel value (100). Out-of-range on purpose so the driver knows no valid latitude has been set.</summary>
         internal static string SiteLatitudeDefault = "100";
+
+        /// <summary>Profile key for the site longitude stored on the mount (degrees).</summary>
         internal static string SiteLongitudeName = "Site Longitude";
+        /// <summary>Default longitude sentinel value (200). Out-of-range on purpose so the driver knows no valid longitude has been set.</summary>
         internal static string SiteLongitudeDefault = "200";
-        internal static string CompatModeName = "Compatibility Mode";
-        internal static string CompatModeDefault = "0";
-        internal static string CanSetGuideRatesOverrideName = "CanSetGuideRates Override";
-        internal static string CanSetGuideRatesOverrideDefault = "false";
+
+        /// <summary>Profile key controlling whether the driver synchronizes the mount's clock to the PC clock on connect.</summary>
         internal static string SyncTimeOnConnectName = "Sync Time on Connect";
+        /// <summary>Default is "true" — the mount clock is synced to PC time each time the driver connects.</summary>
         internal static string SyncTimeOnConnectDefault = "true";
+
+        /// <summary>Profile key for the guiding compensation mode. Controls azimuth pulse-guide compensation based on target altitude.</summary>
         internal static string GuideCompName = "Guiding Compensation";
+        /// <summary>Default guiding compensation mode (0 = disabled).</summary>
         internal static string GuideCompDefault = "0";
+
+        /// <summary>Profile key for the maximum allowed guiding compensation delta in milliseconds.</summary>
         internal static string GuideCompMaxDeltaName = "Guiding Compensation Max Delta";
+        /// <summary>Default maximum delta (1000 ms). Caps the azimuth pulse-guide extension to prevent runaway corrections.</summary>
         internal static string GuideCompMaxDeltaDefault = "1000";
+
+        /// <summary>Profile key for the guiding compensation buffer in milliseconds.</summary>
         internal static string GuideCompBufferName = "Guiding Compensation Buffer";
+        /// <summary>Default buffer (20 ms). Minimum additional time added to azimuth guide pulses when compensation is active.</summary>
         internal static string GuideCompBufferDefault = "20";
-        internal static string TrackingRateOnConnectName = "Tracking Rate on Connect";
-        internal static string TrackingRateOnConnectDefault = "0";
+
+        /// <summary>Profile key for whether pulse-guide commands are issued in the equatorial (topocentric) reference frame.</summary>
         internal static string PulseGuideEquFrameName = "PulseGuide Equatorial Frame";
+        /// <summary>Default is "true" — pulse guides use equatorial/topocentric frame rather than alt-az.</summary>
         internal static string PulseGuideEquFrameDefault = "true";
+
+        /// <summary>Profile key for enabling the driver-side site location override (ignores mount-reported lat/lon).</summary>
         internal static string DriverSiteOverrideName = "Driver Site Override";
+        /// <summary>Default is "false" — the driver reads site location from the mount.</summary>
         internal static string DriverSiteOverrideDefault = "false";
+
+        /// <summary>Profile key for the driver-override site latitude (degrees, -90 to +90).</summary>
         internal static string DriverSiteLatitudeName = "Driver Site Latitude";
+        /// <summary>Default override latitude (0 degrees).</summary>
         internal static string DriverSiteLatitudeDefault = "0";
+
+        /// <summary>Profile key for the driver-override site longitude (degrees, -180 to +180).</summary>
         internal static string DriverSiteLongitudeName = "Driver Site Longitude";
+        /// <summary>Default override longitude (0 degrees).</summary>
         internal static string DriverSiteLongitudeDefault = "0";
-        internal static string HCGuideRateName = "Handcontroller Guide Rate";
-        internal static string HCGuideRateDefault = "2";
-        internal static string PulseGuideDurationCompliantName = "PulseGuide Duration ASCOM Compliance"; //ASCOM compliance requires IsPulseGuiding to be true for the entire PulseGuide duration
-        internal static string PulseGuideDurationCompliantDefault = "true"; //Unduly limited, should not normally need to be enabled
+
+        /// <summary>Profile key for forcing pulse-guide commands to execute synchronously (blocks until complete).</summary>
+        internal static string PulseGuideDurationSynchronousName = "Synchronous PulseGuide Duration";
+        /// <summary>Default is "false" — pulse guides run asynchronously so the caller is not blocked.</summary>
+        internal static string PulseGuideDurationSynchronousDefault = "false";
+
+        /// <summary>Profile key for enabling align-on-sync mode, which builds a pointing model from sync points.</summary>
         internal static string AlignOnSyncEnabledName = "Align on Sync Mode";
+        /// <summary>Default is "false" — standard sync behavior without building a multi-point alignment model.</summary>
         internal static string AlignOnSyncEnabledDefault = "false";
+
+        /// <summary>Profile key for the number of sync points collected for align-on-sync mode.</summary>
         internal static string AlignOnSyncPointsName = "Align on Sync Mode Sync Points";
+        /// <summary>Default is "0" — no sync points recorded yet.</summary>
         internal static string AlignOnSyncPointsDefault = "0";
+
+        /// <summary>Profile key for enabling a user-defined park location instead of the default home position.</summary>
+        internal static string SetParkLocName = "Set Park Location";
+        /// <summary>Default is "false" — the mount parks at its default home position.</summary>
+        internal static string SetParkLocDefault = "false";
+
+        /// <summary>Profile key indicating whether the mount is currently in a parked state.</summary>
+        internal static string ParkLocName = "Park Location";
+        /// <summary>Default is "false" — the mount starts in an unparked state.</summary>
+        internal static string ParkLocDefault = "false";
+
+        /// <summary>Profile key for the custom park position altitude (degrees, 0 to 90).</summary>
+        internal static string ParkLocAltName = "Park Location Altitude";
+        /// <summary>Default park altitude (0 degrees — horizon).</summary>
+        internal static string ParkLocAltDefault = "0";
+
+        /// <summary>Profile key for the custom park position azimuth (degrees, 0 to 360).</summary>
+        internal static string ParkLocAzName = "Park Location Azimuth";
+        /// <summary>Default park azimuth (180 degrees — due south).</summary>
+        internal static string ParkLocAzDefault = "180";
+
         #endregion
 
         #region Constants
-        internal static int MOVEAXIS_WAIT_TIME = 2000; //minimum delay between moveaxis commands
-        internal static int SYNC_WAIT_TIME = 200; //delay time to ensure position is updated in mount following sync
+
+        /// <summary>
+        /// Minimum delay in milliseconds between successive MoveAxis commands.
+        /// Prevents the mount's serial command buffer from overflowing when rapid
+        /// MoveAxis calls are issued by the client application.
+        /// </summary>
+        internal static int MOVEAXIS_WAIT_TIME = 2000;
+
+        /// <summary>
+        /// Delay in milliseconds after a sync command before reading the mount's position.
+        /// Gives the mount time to update its internal position registers so subsequent
+        /// position queries return the corrected coordinates.
+        /// </summary>
+        internal static int SYNC_WAIT_TIME = 200;
+
+        /// <summary>
+        /// Flag indicating whether the connected mount is running development-level firmware
+        /// (version 355 or later). Set at runtime during the connection handshake based on
+        /// the firmware version string reported by the mount; enables additional features
+        /// available only in newer firmware.
+        /// </summary>
         internal static bool DEV_FIRMWARE = false;
+
         #endregion
 
         #region Variable Declarations
-        private static string DriverProgId = ""; // ASCOM DeviceID (COM ProgID) for this driver, the value is set by the driver's class initialiser.
-        private static string DriverDescription = ""; // The value is set by the driver's class initialiser.
-        private static bool connectedState; // Local server's connected state
-        private static bool runOnce = false; // Flag to enable "one-off" activities only to run once.
-        private static bool connecting; // Completion variable for use with the Connect and Disconnect methods
-        internal static Util utilities; // ASCOM Utilities object for use as required
-        internal static AstroUtils astroUtils;  //Used for RA Conditioning
-        internal static AstroUtilities astroUtilities; // ASCOM AstroUtilities object for use as required
-        internal static Utilities.TraceLogger tl; // Local server's trace logger object for diagnostic log with information that you specify
-        internal static Transform T;  // Variable to provide coordinate Transforms
-        internal static readonly object LockObject = new object();  // object used for locking to prevent multiple drivers accessing common code at the same time
-        internal static ProfileProperties profileProperties = new ProfileProperties(); //Accessible profile to apply changes to
+
+        /// <summary>ASCOM DeviceID (COM ProgID) for this driver. Set once during the driver's static initializer.</summary>
+        private static string DriverProgId = "";
+
+        /// <summary>Human-readable driver description shown in the ASCOM Chooser. Set once during the driver's static initializer.</summary>
+        private static string DriverDescription = "";
+
+        /// <summary>
+        /// Indicates whether the local server currently has an active serial connection to the mount.
+        /// Shared across all COM driver instances; access should be synchronized via <see cref="LockObject"/>.
+        /// </summary>
+        private static bool connectedState;
+
+        /// <summary>
+        /// Guard flag ensuring one-time initialization logic (e.g., firmware detection) executes
+        /// only on the first connection and is not repeated on subsequent connects.
+        /// </summary>
+        private static bool runOnce = false;
+
+        /// <summary>
+        /// Indicates that a connect or disconnect operation is currently in progress.
+        /// Used to prevent re-entrant connection attempts from multiple COM clients.
+        /// </summary>
+        private static bool connecting;
+
+        /// <summary>ASCOM Utilities helper. Provides general-purpose utility methods (e.g., time conversions).</summary>
+        internal static Util utilities;
+
+        /// <summary>ASCOM AstroUtils instance used for Right Ascension conditioning and related calculations.</summary>
+        internal static AstroUtils astroUtils;
+
+        /// <summary>ASCOM AstroUtilities instance providing additional astronomical calculation methods.</summary>
+        internal static AstroUtilities astroUtilities;
+
+        /// <summary>
+        /// Trace logger for writing diagnostic information to the ASCOM log directory.
+        /// Controlled by the "Trace Level" profile setting; shared across all COM driver instances.
+        /// </summary>
+        internal static Utilities.TraceLogger tl;
+
+        /// <summary>ASCOM Transform instance used to convert between coordinate systems (e.g., J2000 to topocentric).</summary>
+        internal static Transform T;
+
+        /// <summary>
+        /// Synchronization object used to serialize access to shared state and serial port
+        /// communication, preventing concurrent calls from multiple COM driver instances
+        /// from corrupting the command/response sequence.
+        /// </summary>
+        internal static readonly object LockObject = new object();
+
+        /// <summary>In-memory copy of the persisted ASCOM Profile settings. Modified via the setup dialog and applied on connect.</summary>
+        internal static ProfileProperties profileProperties = new ProfileProperties();
+
+        /// <summary>
+        /// List of GUIDs identifying each connected COM driver instance.
+        /// Used to track how many clients are connected so the serial port is only
+        /// closed when the last client disconnects.
+        /// </summary>
         private static List<Guid> uniqueIds = new List<Guid>();
+
         #endregion
 
         /// <summary>
@@ -217,8 +351,6 @@ namespace ASCOM.TTS160.Telescope
                 MiscResources.IsPulseGuiding = false;
                 MiscResources.MovingPrimary = false;
                 MiscResources.MovingSecondary = false;
-                MiscResources.EWPulseGuideFlag = false;
-                MiscResources.NSPulseGuideFlag = false;
                 MiscResources.EWMoveAxisStopFlag = false;
                 MiscResources.NSMoveAxisStopFlag = false;
 
@@ -318,24 +450,64 @@ namespace ASCOM.TTS160.Telescope
 
         }
 
+        /// <summary>
+        /// Central serial communication method for the TTS-160 mount. All telescope commands flow through
+        /// this method, which delegates to <see cref="SharedResources.SendMessage"/> for actual serial I/O.
+        /// Implements the LX200 serial command protocol.
+        /// </summary>
+        /// <param name="command">
+        /// The command string to send to the mount. When <paramref name="raw"/> is <c>false</c>,
+        /// this is the bare command (e.g., "GVP") which will be automatically framed with LX200
+        /// protocol characters (colon prefix and hash suffix).
+        /// </param>
+        /// <param name="raw">
+        /// When <c>false</c>, the command is wrapped with LX200 framing: a <c>:</c> prefix and <c>#</c> suffix
+        /// are added before transmission (e.g., "GVP" becomes ":GVP#").
+        /// When <c>true</c>, the command string is sent exactly as provided with no modification.
+        /// </param>
+        /// <param name="commandtype">
+        /// Specifies the expected response type:
+        /// <list type="bullet">
+        /// <item><description>0 = Blind (fire-and-forget): sends command with no expected response, returns empty string.</description></item>
+        /// <item><description>1 = Boolean: expects a single-digit response, returns it as a string.</description></item>
+        /// <item><description>2 = String: expects a <c>#</c>-terminated response string.</description></item>
+        /// </list>
+        /// </param>
+        /// <returns>
+        /// The mount's response: empty string for blind commands, a single-digit string for boolean commands,
+        /// or a <c>#</c>-terminated string for string commands.
+        /// </returns>
+        /// <exception cref="ASCOM.DriverException">
+        /// Thrown when an invalid <paramref name="commandtype"/> is provided, or when retry attempts
+        /// are exhausted after a timeout.
+        /// </exception>
+        /// <remarks>
+        /// <para>Thread safety: all calls are serialized via <see cref="LockObject"/> to prevent
+        /// concurrent serial port access.</para>
+        /// <para>On a COM timeout (HResult code 1026), the method automatically retries via
+        /// <see cref="CommanderReTx"/> up to 5 times. After a successful retry, the retransmit
+        /// buffer is cleared to maintain command/response synchronization.</para>
+        /// </remarks>
         internal static string Commander(string command, bool raw, int commandtype)
-        {          
+        {
 
             lock (LockObject)
             {
                 try
                 {
                     CheckConnected("Commander");
-                    CheckParked("Commander");
+                    //CheckParked("Commander");
                 }
                 catch (Exception ex)
                 {
                     LogMessage("Commander", $"Exception: {ex.Message}");
                 }
 
+                // Apply LX200 protocol framing if not sending a raw command
                 if (!raw) { command = ":" + command + "#"; }
                 try
                 {
+                    // Dispatch based on expected response type
                     switch (commandtype)
                     {
                         case 0:
@@ -387,7 +559,9 @@ namespace ASCOM.TTS160.Telescope
                 {
                     LogMessage("Commander", $"Error: {ex.Message}");
                    
-                    if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))  //This indicates a timeout while waiting for a response from the mount.  Usually seen when polling slewing status when it changes at the end of a goto
+                    // Check for COM timeout: HResult low 16 bits == 1026 (0x0402) indicates a serial read timeout.
+                    // This commonly occurs when polling slewing status at the end of a goto command.
+                    if ((ex is System.Runtime.InteropServices.COMException) && (ex.HResult & 0xFFFF).Equals(1026))
                     {
                         LogMessage("Commander", $"{ex}");
                         LogMessage("Commander", $"isFailure: {(ex.HResult & 0x80000000) != 0}; facility: {(ex.HResult & 0x7FFF0000) >> 16}; code: {ex.HResult & 0xFFFF}");
@@ -395,7 +569,9 @@ namespace ASCOM.TTS160.Telescope
                         try
                         {
                             int retx = 0;
-                            while (retx <= 5)  //Each loop iteration will be equal to the read timeout setting (RECEIVETIMEOUT in SharedResources)
+                            // Retry up to 6 attempts (0..5). Each iteration blocks for the serial read
+                            // timeout duration (RECEIVETIMEOUT in SharedResources).
+                            while (retx <= 5)
                             {
                                 LogMessage("Commander", $"Retry #: {retx + 1}");
                                 string result = CommanderReTx(command, commandtype);
@@ -406,8 +582,9 @@ namespace ASCOM.TTS160.Telescope
                                 else
                                 {
                                     LogMessage("Commander", $"Retry succeeded for {command} after {retx+1} retries.");
-                                    SharedResources.ClearReTxBuff();  //The mount will store commands and responses to return later, Any command sent is 1 to 1 with a response as applicable
-                                                                      //A timeout error will end up result in responses mismatched unless we clear the queue.  This loops through and clears the handpad queue that we filled with the retransmit attempt.
+                                    // The mount queues commands and responses 1:1. A timeout causes a mismatch,
+                                    // so we must clear the retransmit buffer to re-synchronize the queue.
+                                    SharedResources.ClearReTxBuff();
                                     return result;
                                 }
                             }
@@ -435,12 +612,27 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
-        /// <summary>Retransmits the timed out command.</summary>
-        /// <param name="command">The literal command string to be transmitted.</param>
-        /// <param name="commandtype">Command type (blind, bool, string) indicating the expected response.</param>
-        /// <returns>A string response. If timeout is detected, it will return "timeout".
-        /// <para>This function will return either the mount response ("" for blind), "timeout" for a detected timeout, or throw an Exception in all other cases.</para>
+        /// <summary>
+        /// Retransmits a command that previously timed out. Called by <see cref="Commander"/> as part
+        /// of the retry loop. Unlike Commander, this method does not apply protocol framing (the command
+        /// is already framed) and does not acquire <see cref="LockObject"/> (the caller already holds it).
+        /// </summary>
+        /// <param name="command">The fully-framed command string to retransmit (already includes protocol characters).</param>
+        /// <param name="commandtype">
+        /// Command type indicating expected response:
+        /// 0 = blind (fire-and-forget), 1 = boolean (single digit), 2 = string (#-terminated).
+        /// </param>
+        /// <returns>
+        /// <para>The mount's response on success: empty string for blind commands, the response string for bool/string commands.</para>
+        /// <para>Returns the literal string <c>"timeout"</c> if another COM timeout occurs (HResult code 1026),
+        /// allowing the caller to continue retrying.</para>
         /// </returns>
+        /// <exception cref="ASCOM.DriverException">Thrown for invalid command types.</exception>
+        /// <remarks>
+        /// The timeout detection uses the same HResult code 1026 check as <see cref="Commander"/>.
+        /// Non-timeout exceptions are re-thrown to the caller. The caller is responsible for clearing
+        /// the retransmit buffer after a successful retry via <see cref="SharedResources.ClearReTxBuff"/>.
+        /// </remarks>
         internal static string CommanderReTx(string command, int commandtype)
         {
             switch (commandtype)
@@ -513,15 +705,19 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and does not wait for a response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard blind command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=0</c> (fire-and-forget, no response expected).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static void CommandBlind(string command, bool raw)
         {
 
@@ -531,18 +727,20 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and waits for a boolean response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard boolean command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=1</c> (single-digit boolean response).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
-        /// <returns>
-        /// Returns the interpreted boolean response received from the device.
-        /// </returns>
+        /// <returns>The interpreted boolean response from the device.</returns>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static bool CommandBool(string command, bool raw)
         {
 
@@ -552,18 +750,20 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// [DEPRECATED]
-        /// Transmits an arbitrary string to the device and waits for a string response.
-        /// Optionally, protocol framing characters may be added to the string before transmission.
+        /// [DEPRECATED — Not implemented] ASCOM standard string command interface.
+        /// Would wrap <see cref="Commander"/> with <c>commandtype=2</c> (#-terminated string response).
         /// </summary>
-        /// <param name="Command">The literal command string to be transmitted.</param>
-        /// <param name="Raw">
-        /// if set to <c>true</c> the string is transmitted 'as-is'.
-        /// If set to <c>false</c> then protocol framing characters may be added prior to transmission.
+        /// <param name="command">The literal command string to be transmitted.</param>
+        /// <param name="raw">
+        /// If set to <c>true</c> the string is transmitted as-is.
+        /// If set to <c>false</c> then LX200 protocol framing (<c>:</c> prefix and <c>#</c> suffix) would be added.
         /// </param>
-        /// <returns>
-        /// Returns the string response received from the device.
-        /// </returns>
+        /// <returns>The string response received from the device.</returns>
+        /// <exception cref="ASCOM.MethodNotImplementedException">Always thrown; this method is not implemented.</exception>
+        /// <remarks>
+        /// All command traffic in this driver flows through <see cref="Commander"/> directly rather than
+        /// through these ASCOM standard wrappers.
+        /// </remarks>
         public static string CommandString(string command, bool raw)
         {
 
@@ -594,12 +794,19 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Connect to the hardware if not already connected
+        /// Asynchronously connect to the telescope hardware if not already connected.
+        /// Uses <see cref="Connecting"/> as the completion flag.
         /// </summary>
-        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
         /// <remarks>
-        /// The unique ID is stored to record that the driver instance is connected and to ensure that multiple calls from the same driver are ignored.
-        /// If this is the first driver instance to connect, the physical hardware link to the device is established
+        /// <para>Supports multi-instance connection tracking via the <c>uniqueIds</c> list. If the
+        /// <paramref name="uniqueId"/> is already in the list, the request is silently ignored.</para>
+        /// <para>The actual connection work is dispatched to a background <see cref="Task"/> that calls
+        /// <see cref="SetConnected"/>. The <see cref="Connecting"/> property is set to <c>true</c>
+        /// before the task starts and reset to <c>false</c> in the task's <c>finally</c> block,
+        /// allowing callers to poll for completion.</para>
+        /// <para>If this is the first driver instance to connect, the physical serial link to the
+        /// mount is established and first-connect initialization is performed (see <see cref="SetConnected"/>).</para>
         /// </remarks>
         public static void Connect(Guid uniqueId)
         {
@@ -652,13 +859,18 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Disconnect from the device asynchronously using Connecting as the completion variable
+        /// Asynchronously disconnect from the telescope hardware.
+        /// Uses <see cref="Connecting"/> as the completion flag.
         /// </summary>
-        /// <param name="uniqueId">Unique ID identifying the calling driver instance.</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
         /// <remarks>
-        /// The list of connected driver instance IDs is queried to determine whether this driver instance is connected and, if so, it is removed from the connection list. 
-        /// The unique ID ensures that multiple calls from the same driver are ignored.
-        /// If this is the last connected driver instance, the physical link to the device hardware is disconnected.
+        /// <para>If the <paramref name="uniqueId"/> is not in the connected list, the request is silently ignored
+        /// (the instance is already disconnected).</para>
+        /// <para>Like <see cref="Connect"/>, the work is dispatched to a background <see cref="Task"/>
+        /// that calls <see cref="SetConnected"/> with <c>false</c>. The <see cref="Connecting"/> flag
+        /// tracks completion.</para>
+        /// <para>The driver instance's unique ID is removed from the <c>uniqueIds</c> list. If this was the
+        /// last connected instance, the physical serial link to the mount hardware is closed.</para>
         /// </remarks>
         public static void Disconnect(Guid uniqueId)
         {
@@ -714,10 +926,29 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Synchronously connect to or disconnect from the hardware
+        /// Synchronously connect to or disconnect from the telescope hardware.
+        /// Called by the background tasks in <see cref="Connect"/> and <see cref="Disconnect"/>.
         /// </summary>
-        /// <param name="uniqueId">Driver's unique ID</param>
-        /// <param name="newState">New state: Connected or Disconnected</param>
+        /// <param name="uniqueId">Unique GUID identifying the calling driver instance.</param>
+        /// <param name="newState">
+        /// <c>true</c> to connect, <c>false</c> to disconnect.
+        /// </param>
+        /// <remarks>
+        /// <para><b>Connection (newState=true):</b> If this is the first instance connecting
+        /// (uniqueIds is empty and SharedResources is not connected), performs first-time initialization:</para>
+        /// <list type="number">
+        /// <item><description>Opens the serial port via <see cref="SharedResources"/>.</description></item>
+        /// <item><description>Queries mount firmware version via LX200 <c>:GVN#</c> command and sets
+        /// <see cref="DEV_FIRMWARE"/> flag if version >= 355 (enables advanced features).</description></item>
+        /// <item><description>Reads site latitude/longitude from the mount.</description></item>
+        /// <item><description>Optionally syncs the mount's clock to the computer's UTC time.</description></item>
+        /// <item><description>On advanced firmware: configures Align-on-Sync mode and park location settings.</description></item>
+        /// </list>
+        /// <para>If other instances are already connected, simply increments the connection count.</para>
+        /// <para><b>Disconnection (newState=false):</b> Removes the driver ID from the connected list,
+        /// saves site coordinates, and decrements the shared connection count. When the last instance
+        /// disconnects, the hardware serial link is closed.</para>
+        /// </remarks>
         public static void SetConnected(Guid uniqueId, bool newState)
         {
             // Check whether we are connecting or disconnecting
@@ -738,11 +969,13 @@ namespace ASCOM.TTS160.Telescope
                         //First time connection
                         try
                         {
+                            /*
                             if (AtPark)
                             {
                                 LogMessage("SetConnected", "Mount appears parked.  Cycle power and disconnect from all programs to connect");
                                 throw new ASCOM.ParkedException("Mount appears parked.  Cycle mount power and disconnect from all programs to connect");
                             }
+                            */
 
                             //Define new serial object.  TTS-160 connects at 9600 baud, 8 data, no parity, 1 stop
                             SharedResources.comPort = profileProperties.ComPort;
@@ -761,18 +994,26 @@ namespace ASCOM.TTS160.Telescope
                         {
                             LogMessage("SetConnected", "Success");
                             LogMessage("SetConnected", $"Connected with {Description}");
+                            // Query mount product name via LX200 :GVP# command
                             LogMessage("SetConnected", $"Mount Name: {Commander(":GVP#", true, 2).TrimEnd('#')}");
+
+                            // --- Firmware version detection ---
+                            // Query firmware version string via LX200 :GVN# command (e.g., "356.0.0")
                             string firmware = Commander(":GVN#", true, 2).TrimEnd('#');
                             int devtest = 0;
                             try
                             {
+                                // Parse the first 3 characters as an integer (e.g., "356" -> 356)
+                                // to compare against the minimum advanced firmware version threshold
                                 devtest = int.Parse(firmware.Substring(0,3));
                             }
                             catch
                             {
+                                // Non-numeric firmware string; treat as legacy firmware
                                 devtest = 0;
                             }
 
+                            // Firmware versions >= 355 support advanced features (Align-on-Sync, park locations, etc.)
                             if (devtest >= 355)
                             {
                                 DEV_FIRMWARE = true;
@@ -796,6 +1037,9 @@ namespace ASCOM.TTS160.Telescope
                             LogMessage("SetConnected", $"Equatorial Pulse Guide: {profileProperties.PulseGuideEquFrame}");
                             WriteProfile(profileProperties);
 
+                            // --- Time synchronization ---
+                            // If enabled in profile settings, sync the mount's internal UTC clock
+                            // to the computer's system time. Logs before/after to show drift correction.
                             if (profileProperties.SyncTimeOnConnect)
                             {
                                 LogMessage("SetConnected", "Sync Time on Connect - " + profileProperties.SyncTimeOnConnect.ToString());
@@ -804,35 +1048,18 @@ namespace ASCOM.TTS160.Telescope
                                 UTCDate = DateTime.UtcNow;
                                 LogMessage("SetConnected", "Post Sync Mount UTC: " + UTCDate.ToString("MM/dd/yy HH:mm:ss"));
                                 LogMessage("SetConnected", "Post Sync Computer UTC: " + DateTime.UtcNow.ToString("MM/dd/yy HH:mm:ss"));
-                            }
+                            }                    
 
-
-
-                            LogMessage("SetConnected", $"Establishing Tracking Rate - {profileProperties.TrackingRateOnConnect.ToString()}");
-                            switch (profileProperties.TrackingRateOnConnect)
-                            {
-
-                                case 0:
-                                    TrackingRate = DriveRates.driveSidereal;
-                                    break;
-                                case 1:
-                                    TrackingRate = DriveRates.driveLunar;
-                                    break;
-                                case 2:
-                                    TrackingRate = DriveRates.driveSolar;
-                                    break;
-                                default:
-                                    throw new ASCOM.InvalidValueException($"Unexpected TrackingRateOnConnect Value: {profileProperties.TrackingRateOnConnect.ToString()}");
-
-                            }
-
-                            MiscResources.IsTargetDecSet = false; //'Clearing' any previous target info
+                            // Clear any previous slew target coordinates from a prior session
+                            MiscResources.IsTargetDecSet = false;
                             MiscResources.IsTargetRASet = false;
                             MiscResources.IsTargetSet = false;
 
+                            // --- Advanced firmware features (version >= 355 only) ---
                             if (DEV_FIRMWARE)
                             {
-
+                                // Configure Align-on-Sync if enabled in profile settings.
+                                // Sends the desired number of alignment points and verifies the mount echoes it back.
                                 if (profileProperties.AlignOnSyncEnabled)
                                 {
                                     LogMessage("SetConnected", $"Enabling Align on Sync mode with {profileProperties.AlignOnSyncPoints} alignment points");
@@ -854,6 +1081,40 @@ namespace ASCOM.TTS160.Telescope
                                         LogMessage("SetConnected", "Align On Sync mode is active.");
                                     }
                                 }
+
+                                // --- Park location initialization ---
+                                // If the user updated the park location in the setup dialog, push it to the mount.
+                                // :*PS1<az><alt># sets a custom park location; :*PS0# sets park-in-place mode.
+                                if (profileProperties.SetParkLoc)
+                                {
+                                    LogMessage("SetConnected", "Sending updated Park Location to Mount.");
+                                    LogMessage("SetConnected", $"Park in Place: {!profileProperties.ParkLoc}");
+                                    LogMessage("SetConnected", $"Custom Park Location Altitude: {profileProperties.ParkLocAlt}");
+                                    LogMessage("SetConnected", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
+                                    if (profileProperties.ParkLoc)
+                                    {
+                                        // Send custom park coordinates: azimuth (DDD.ddd) + altitude (DD.ddd)
+                                        Commander($":*PS1{profileProperties.ParkLocAz.ToString("D3.3")}{profileProperties.ParkLocAlt.ToString("D2.3")}#", true, 0);
+                                    }
+                                    else
+                                    {
+                                        // Park-in-place mode: mount parks wherever it currently points
+                                        Commander(":*PS0#", true, 0);
+                                    }
+                                    profileProperties.SetParkLoc = false;
+                                }
+
+                                // Read back the mount's current park location settings via :*PG#
+                                // Response format: <mode><azimuth 7 chars><altitude 6 chars>
+                                LogMessage("SetConnected", "Getting Mount Park Location Settings");
+                                string parkstatus = Commander(":*PG#", true, 2);
+                                if ((parkstatus[0] - '0') == 0) { profileProperties.ParkLoc = false; }  // '0' = park-in-place
+                                else { profileProperties.ParkLoc = true; }  // '1' = custom park location
+                                profileProperties.ParkLocAz = Double.Parse(parkstatus.Substring(1, 7));
+                                profileProperties.ParkLocAlt = Double.Parse(parkstatus.Substring(8, 6));
+                                LogMessage("SetConnected", $"Park in Place: {!profileProperties.ParkLoc}");
+                                LogMessage("SetConnected", $"Custom Park Location Altitude: {profileProperties.ParkLocAlt}");
+                                LogMessage("SetConnected", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
 
                             }
 
@@ -1011,8 +1272,13 @@ namespace ASCOM.TTS160.Telescope
         #region ITelescope Implementation
 
         /// <summary>
-        /// Stops a slew in progress.
+        /// Stops a slew in progress by sending <c>:Q#</c> to the mount and resetting all motion state flags.
         /// </summary>
+        /// <remarks>
+        /// Per ASCOM standards, should only be called when <see cref="Slewing"/> is true, but the TTS-160
+        /// ignores the command if not slewing, providing a safe "universal abort" for emergency stops.
+        /// Resets all slewing, MoveAxis, and pulse guide state in <see cref="MiscResources"/>.
+        /// </remarks>
         internal static void AbortSlew()
         {
             try
@@ -1050,6 +1316,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The alignment mode of the mount (Alt/Az, Polar, German Polar).
         /// </summary>
+        /// <remarks>
+        /// The TTS-160 always reports <see cref="AlignmentModes.algAltAz"/> (altitude-azimuth mount).
+        /// The commented-out code shows the LX200 <c>:GW#</c> command could query this from the mount,
+        /// but the value is hardcoded since the TTS-160 is always Alt/Az.
+        /// </remarks>
         internal static AlignmentModes AlignmentMode
         {
             get
@@ -1077,8 +1348,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The Altitude above the local horizon of the telescope's current position (degrees, positive up)
+        /// The altitude above the local horizon of the telescope's current position (degrees, positive up).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>On advanced firmware (>= 355), queries the mount via <c>:*GA#</c> which returns altitude
+        /// in radians for maximum precision, then converts to degrees. On legacy firmware, uses the standard
+        /// LX200 <c>:GA#</c> command which returns DMS format.</para>
+        /// </remarks>
         internal static double Altitude
         {
             get
@@ -1120,8 +1397,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The area of the telescope's aperture, taking into account any obstructions (square meters)
+        /// The area of the telescope's aperture, taking into account any obstructions (square meters).
         /// </summary>
+        /// <exception cref="PropertyNotImplementedException">Always thrown; the TTS-160 is a mount, not an OTA.</exception>
         internal static double ApertureArea
         {
             get
@@ -1132,8 +1410,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The telescope's effective aperture diameter (meters)
+        /// The telescope's effective aperture diameter (meters).
         /// </summary>
+        /// <exception cref="PropertyNotImplementedException">Always thrown; the TTS-160 is a mount, not an OTA.</exception>
         internal static double ApertureDiameter
         {
             get
@@ -1157,20 +1436,25 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// True if the telescope has been put into the parked state by the <see cref="Park" /> method. Set False by calling the Unpark() method.
+        /// True if the telescope has been put into the parked state by the <see cref="Park" /> method.
         /// </summary>
+        /// <remarks>
+        /// Queries the mount's park status via <c>:*Pq#</c> command (boolean response)
+        /// on every read, ensuring the value reflects actual hardware state.
+        /// </remarks>
         internal static bool AtPark
         {
             get
             {
+                MiscResources.IsParked = bool.Parse(Commander(":*Pq#", true, 1));
                 LogMessage("AtPark get", $"{MiscResources.IsParked}");
                 return MiscResources.IsParked;
             }
-            set
-            {
-                LogMessage("AtPark set", $"{value}");
-                MiscResources.IsParked = value;
-            }
+            //set
+            //{
+            //    LogMessage("AtPark set", $"{value}");
+            //    MiscResources.IsParked = value;
+            //}
         }
 
         /// <summary>
@@ -1203,6 +1487,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The azimuth at the local horizon of the telescope's current position (degrees, North-referenced, positive East/clockwise).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (0 to 360), where 0 = North, 90 = East, 180 = South, 270 = West.</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GZ#</c> (radians, max precision).
+        /// On legacy firmware, uses <c>:GZ#</c> (DMS format).</para>
+        /// </remarks>
         internal static double Azimuth
         {
             get
@@ -1247,6 +1536,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if this telescope is capable of programmed finding its home position (<see cref="FindHome" /> method).
         /// </summary>
+        /// <remarks>
+        /// Returns <c>true</c>. The TTS-160 home position is defined as azimuth 180° (south), altitude ~0°.
+        /// Home finding is implemented in software by slewing to those coordinates.
+        /// </remarks>
         internal static bool CanFindHome
         {
             get
@@ -1269,8 +1562,11 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// True if this telescope can move the requested axis
+        /// True if this telescope can move the requested axis.
         /// </summary>
+        /// <param name="Axis">The axis to query.</param>
+        /// <returns><c>true</c> for primary (azimuth) and secondary (altitude) axes; <c>false</c> for tertiary.</returns>
+        /// <exception cref="InvalidValueException">Thrown if <paramref name="Axis"/> is not a valid <see cref="TelescopeAxes"/> value.</exception>
         internal static bool CanMoveAxis(TelescopeAxes Axis)
         {
             try
@@ -1343,6 +1639,9 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if the <see cref="DeclinationRate" /> property can be changed to provide offset tracking in the declination axis.
         /// </summary>
+        /// <remarks>
+        /// Returns <c>true</c>. Offset tracking rates are supported via the <c>:*SD</c> command on firmware >= 355.
+        /// </remarks>
         internal static bool CanSetDeclinationRate
         {
             get
@@ -1352,8 +1651,8 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetDeclinationRate");
 
                     //SetDeclinationRate is not implemented in TTS-160, return false
-                    LogMessage("CanSetDeclinationRate", $"{false}");
-                    return false;
+                    LogMessage("CanSetDeclinationRate", $"{true}");
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1373,20 +1672,8 @@ namespace ASCOM.TTS160.Telescope
                 try
                 {
                     CheckConnected("CanSetGuideRates");
-
-                    //Check for override for App Compatibility Mode
-                    if (profileProperties.CanSetGuideRatesOverride)
-                    {
-                        LogMessage("CanSetGuideRates Override", "Showing CanSetGuideRates as True");
-                        LogMessage("CanSetGuideRates get", $"{true}");
-                        return true;
-                    }
-                    else
-                    {
-                        //TTS-160 does not support SetGuideRates, return false
-                        LogMessage("CanSetGuideRates", $"{false}");
-                        return false;
-                    }
+                    LogMessage("CanSetGuideRates", $"{true}");
+                    return true;
 
                 }
                 catch (Exception ex)
@@ -1408,9 +1695,8 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("CanSetPark");
 
-                    //Set Park is not implemented by TTS-160, return false
-                    LogMessage("CanSetPark", "Get - " + false.ToString());
-                    return false;
+                    LogMessage("CanSetPark", "Get - " + true.ToString());
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1424,6 +1710,9 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if the <see cref="SideOfPier" /> property can be set, meaning that the mount can be forced to flip.
         /// </summary>
+        /// <remarks>
+        /// Returns <c>false</c>. The TTS-160 is an Alt/Az mount and does not support pier side flipping.
+        /// </remarks>
         internal static bool CanSetPierSide
         {
             get
@@ -1456,8 +1745,8 @@ namespace ASCOM.TTS160.Telescope
                     CheckConnected("CanSetRightAscensionRate");
 
                     //TTS-160 has not implemented SetRightAscensionRate, return false
-                    LogMessage("CanSetRightAscensionRate get", $"{false}");
-                    return false;
+                    LogMessage("CanSetRightAscensionRate get", $"{true}");
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -1628,6 +1917,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// True if this telescope is capable of programmed unparking (<see cref="Unpark" /> method).
         /// </summary>
+        /// <remarks>
+        /// Returns <c>false</c>. The TTS-160 does not implement a dedicated unpark command;
+        /// unparking is handled implicitly by the mount on reconnection.
+        /// </remarks>
         internal static bool CanUnpark
         {
             get
@@ -1648,9 +1941,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination (degrees) of the telescope's current equatorial coordinates, in the coordinate system given by the <see cref="EquatorialSystem" /> property.
-        /// Reading the property will raise an error if the value is unavailable.
+        /// The declination (degrees) of the telescope's current equatorial coordinates,
+        /// in the coordinate system given by the <see cref="EquatorialSystem" /> property.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GD#</c> (radians, max precision).
+        /// On legacy firmware, uses <c>:GD#</c> (DMS format).</para>
+        /// </remarks>
         internal static double Declination
         {
             get
@@ -1694,28 +1992,87 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination tracking rate (arcseconds per SI second, default = 0.0)
+        /// The declination tracking rate offset from zero (arcseconds per SI second, default = 0.0).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: arcseconds per SI second. Positive values move north, negative south.</para>
+        /// <para>Get: queries mount via <c>:*RD#</c> command. Set: sends <c>:*SD{value}#</c>.</para>
+        /// <para>Valid range: [-99.9999999999, 99.9999999999] arcsec/sec.</para>
+        /// <para>Requires <see cref="TrackingRate"/> to be <see cref="DriveRates.driveSidereal"/>.</para>
+        /// </remarks>
         internal static double DeclinationRate
         {
             get
             {
-                //Declination Rate not implemented by TTS-160, return 0.0
-                double declinationRate = 0.0;
-                LogMessage("DeclinationRate get", $"{declinationRate}");
-                return declinationRate;
+
+                try
+                {
+                    CheckConnected("DeclinationRate Get");
+
+                    double declinationrate = 0.0;
+
+                    string cmd = ":*RD#"; //Get the current declination rate
+                    LogMessage("DeclinationRate get", $"{cmd}");
+                    var result = Commander(cmd, true, 2).TrimEnd('#');
+                    LogMessage("Declinationrate get", $"Retrieved value: {result} arc sec/sec");
+                    declinationrate = double.Parse(result, CultureInfo.InvariantCulture); //return in arc sec/sec
+     
+                    return declinationrate;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate get", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
             set
             {
-                //Declination Rate not implemented by TTS-160
-                LogMessage("DeclinationRate Set", "Not implemented");
-                throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                try
+                {
+                    //Declination Rate not implemented by TTS-160
+                    //LogMessage("DeclinationRate Set", "Not implemented");
+                    //throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                    CheckConnected("DeclinationRate Set");
+
+                    LogMessage("DeclinationRate set", $"{value} arc sec/sec");
+
+                    if( TrackingRate != DriveRates.driveSidereal)
+                    {
+                        throw new InvalidOperationException("Tracking must be set to Sidereal before setting Declination Rate");
+                    }
+
+                    if ( Math.Abs(value) > 99.9999999999 )
+                    {
+                        throw new InvalidValueException("DeclinationRate", value.ToString(CultureInfo.InvariantCulture), "[-99.9999999999, 99.9999999999]");
+                    }
+                    string cmd = $":*SD{value.ToString("+00.0000000000;-00.0000000000")}#";
+                    LogMessage("DeclinationRate set", $"Sending command: {cmd}");
+                    Commander(cmd, true, 0);
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate set", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
         }
 
         /// <summary>
-        /// Predict side of pier for German equatorial mounts at the provided coordinates
+        /// Predicts the side of pier for a given set of equatorial coordinates.
         /// </summary>
+        /// <param name="rightAscension">Target right ascension in hours.</param>
+        /// <param name="Declination">Target declination in degrees (unused — pier side depends only on RA).</param>
+        /// <returns>The predicted <see cref="PierSide"/> at the target coordinates.</returns>
+        /// <remarks>
+        /// Although the TTS-160 is an Alt/Az mount and doesn't have a physical pier side,
+        /// this is computed for ASCOM compliance using <see cref="CalculateSideOfPier"/>.
+        /// </remarks>
         internal static PierSide DestinationSideOfPier(double rightAscension, double Declination)
         {
 
@@ -1757,12 +2114,44 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Equatorial coordinate system used by this telescope (e.g. Topocentric or J2000).
+        /// Equatorial coordinate system used by this telescope (Topocentric or J2000).
         /// </summary>
+        /// <remarks>
+        /// Queries the mount via <c>:*E#</c> command. Returns <c>true</c> for topocentric,
+        /// <c>false</c> for J2000. The coordinate epoch affects how RA/Dec values are interpreted
+        /// by ASCOM clients for coordinate transforms and plate solving.
+        /// </remarks>
         internal static EquatorialCoordinateType EquatorialSystem
         {
             get
             {
+
+                EquatorialCoordinateType topocentric = EquatorialCoordinateType.equTopocentric;
+                EquatorialCoordinateType J2000 = EquatorialCoordinateType.equJ2000;
+                
+                try
+                {
+                    LogMessage("MountEpoch", "Retrieving Mount Epoch setting:");
+                    bool result = true;
+                    result = bool.Parse(Commander(":*E#", true, 1));
+                    if (result)
+                    {
+                        LogMessage("MountEpoch", $"Retrieved {result}, indicating Topocentric Equatorial.");
+                        return topocentric;
+                    }
+                    else
+                    {
+                        LogMessage("MountEpoch", $"Retrieved {result}, indicating J2000.");
+                        return J2000;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("MountEpoch", $"Error retrieving mount's Epoch setting: {ex.Message}");
+                    throw ex;
+                }              
+
+                /*
                 try
                 {
                     CheckConnected("EquatorialCoordinateType");
@@ -1778,12 +2167,21 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("EquatorialCoordinateType", $"Error: {ex.Message}");
                     throw;
                 }
+                */
             }
         }
 
         /// <summary>
-        /// Locates the telescope's "home" position (synchronous)
+        /// Locates the telescope's "home" position (azimuth 180°, lowest reachable altitude).
         /// </summary>
+        /// <remarks>
+        /// <para>Home is defined as Az=180° (south), Alt=0° (or lowest above-horizon altitude).
+        /// The method iterates altitude from 0° upward until the mount accepts the slew target
+        /// (the mount rejects targets below the horizon).</para>
+        /// <para>A background task monitors slew completion and verifies the final position is
+        /// within tolerance (altitude &lt; 2°, azimuth within 5° of 180°).
+        /// Sets <see cref="MiscResources.isAtHome"/> on success.</para>
+        /// </remarks>
         internal static void FindHome()
         {
             try
@@ -1855,9 +2253,6 @@ namespace ASCOM.TTS160.Telescope
                 throw;
             }
 
-
-
-
         }
 
         /// <summary>
@@ -1873,120 +2268,186 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The current Declination movement rate offset for telescope guiding (degrees/sec)
+        /// The current declination movement rate offset for telescope guiding (degrees/sec).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees per second.</para>
+        /// <para>Get: queries the mount's guide rate index via <c>:*gRG#</c>, then maps the index (0-4)
+        /// to a rate in deg/sec: 0→1"/s, 1→3"/s, 2→5"/s, 3→10"/s, 4→20"/s (each ÷3600 for deg/sec).</para>
+        /// <para>Set: converts the input from deg/sec to arcsec/sec (×3600), then maps to the nearest
+        /// rate index and sends <c>:gRS{value}#</c> to the mount.</para>
+        /// </remarks>
         internal static double GuideRateDeclination
         {
             get
             {
-
-                double guiderate = 0;
-
-                switch (profileProperties.HCGuideRate)
+                try
                 {
-                    case 0:
-                        guiderate = 1.0 / 3600.0;
-                        break;
-                    case 1:
-                        guiderate = 3.0 / 3600.0;
-                        break;
-                    case 2:
-                        guiderate = 5.0 / 3600.0;
-                        break;
-                    case 3:
-                        guiderate = 10.0 / 3600.0;
-                        break;
-                    case 4:
-                        guiderate = 20.0 / 3600.0;
-                        break;
+                    CheckConnected("GuideRateDeclination get");
+
+                    double ret = double.Parse(Commander(":*gRG#", true, 2).TrimEnd('#'));
+                    double guiderate = 0;
+
+                    switch (ret)
+                    {
+                        case 0:
+                            guiderate = 1.0 / 3600.0;
+                            break;
+                        case 1:
+                            guiderate = 3.0 / 3600.0;
+                            break;
+                        case 2:
+                            guiderate = 5.0 / 3600.0;
+                            break;
+                        case 3:
+                            guiderate = 10.0 / 3600.0;
+                            break;
+                        case 4:
+                            guiderate = 20.0 / 3600.0;
+                            break;
+                    }
+
+                    LogMessage("GuideRateDeclination get", $"HCGuideRate: {ret} = {guiderate} deg/sec");
+
+                    return guiderate;
+
                 }
-
-                LogMessage("GuideRateDeclination get", $"HCGuideRate: {profileProperties.HCGuideRate} = {guiderate} deg/sec");
-
-                return guiderate;
+                catch (Exception ex)
+                {
+                    throw ex;
+                }
 
             }
             set
             {
-                //Check for CanSetGuideRates Override...
-                if (profileProperties.CanSetGuideRatesOverride)
+
+                try
                 {
-                    LogMessage("CanSetGuideRates Override", "Set GuideRateDeclination " + value.ToString() + " command received");
-                    LogMessage("GuideRateDeclination set", $"{value} assigned to nothing...");
+                    CheckConnected("GuideRateDeclination set");
+
+                    value *= 3600; //set value to sec/sec from deg/sec
+                    if (value < 0)
+                        throw new InvalidValueException($"{value / 3600} is less than 0");
+                    int val = 0;
+                    if (value < 1.5)
+                        val = 0;
+                    else if (value < 4.0)
+                        val = 1;
+                    else if (value < 7.5)
+                        val = 2;
+                    else if (value < 15.0)
+                        val = 3;
+                    else val = 4;
+
+                    LogMessage("GuideRateDeclination - set", $"{value} arc sec/sec corresponds to {val}.");
+                    Commander($":gRS{value}#", true, 0);
+
                 }
-                else
+                catch (Exception ex)
                 {
-                    LogMessage("GuideRateDeclination Set", "Not implemented");
-                    throw new PropertyNotImplementedException("GuideRateDeclination", true);
+                    throw ex;
                 }
+
 
             }
         }
 
         /// <summary>
-        /// The current Right Ascension movement rate offset for telescope guiding (degrees/sec)
+        /// The current right ascension movement rate offset for telescope guiding (degrees/sec).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees per second. Uses the same mount guide rate as <see cref="GuideRateDeclination"/>
+        /// since the TTS-160 has a single guide rate setting that applies to both axes.</para>
+        /// </remarks>
         internal static double GuideRateRightAscension
         {
             get
             {
-
-                //ASCOM standards as this returned in deg/sec, NOT sidereal hours/sec!
-
-                double guiderate = 0;
-
-                switch (profileProperties.HCGuideRate)
+                try
                 {
-                    case 0:
-                        guiderate = 1.0 / 3600.0;
-                        break;
-                    case 1:
-                        guiderate = 3.0 / 3600.0;
-                        break;
-                    case 2:
-                        guiderate = 5.0 / 3600.0;
-                        break;
-                    case 3:
-                        guiderate = 10.0 / 3600.0;
-                        break;
-                    case 4:
-                        guiderate = 20.0 / 3600.0;
-                        break;
+                    CheckConnected("GuideRateRightAscension get");
+
+                    double ret = double.Parse(Commander(":*gRG#", true, 2).TrimEnd('#'));
+                    double guiderate = 0;
+
+                    switch (ret)
+                    {
+                        case 0:
+                            guiderate = 1.0 / 3600.0;
+                            break;
+                        case 1:
+                            guiderate = 3.0 / 3600.0;
+                            break;
+                        case 2:
+                            guiderate = 5.0 / 3600.0;
+                            break;
+                        case 3:
+                            guiderate = 10.0 / 3600.0;
+                            break;
+                        case 4:
+                            guiderate = 20.0 / 3600.0;
+                            break;
+                    }
+
+                    LogMessage("GuideRateRightAscension get", $"HCGuideRate: {ret} = {guiderate} deg/sec");
+
+                    return guiderate;
+
                 }
-
-                LogMessage("GuideRateRightAscension get", $"HCGuideRate: {profileProperties.HCGuideRate} = {guiderate} deg/sec");
-
-                return guiderate;
+                catch (Exception ex)
+                {
+                    throw ex;
+                }
 
             }
             set
             {
-                //Check for CanSetGuideRates Override...
-                if (profileProperties.CanSetGuideRatesOverride)
+                try
                 {
-                    LogMessage("CanSetGuideRates Override set", $"GuideRateRightAscension {value} command received");
-                    LogMessage("GuideRateRightAscension set", $"{value} assigned to nothing...");
+                    CheckConnected("GuideRateRightAscension set");
+
+                    value *= 3600; //set value to sec/sec from deg/sec
+                    if (value < 0)
+                        throw new InvalidValueException($"{value / 3600} is less than 0");
+                    int val = 0;
+                    if (value < 1.5)
+                        val = 0;
+                    else if (value < 4.0)
+                        val = 1;
+                    else if (value < 7.5)
+                        val = 2;
+                    else if (value < 15.0)
+                        val = 3;
+                    else val = 4;
+
+                    LogMessage("GuideRateRightAscension - set", $"{value} arc sec/sec corresponds to {val}.");
+                    Commander($":gRS{value}#", true, 0);
+
                 }
-                else
+                catch (Exception ex)
                 {
-                    LogMessage("GuideRateRightAscension Set", "Not implemented");
-                    throw new PropertyNotImplementedException("GuideRateRightAscension", true);
+                    throw ex;
                 }
             }
         }
 
         /// <summary>
-        /// True if a <see cref="PulseGuide" /> command is in progress, False otherwise
+        /// True if a <see cref="PulseGuide" /> command is in progress, False otherwise.
         /// </summary>
+        /// <remarks>
+        /// Tracked in the driver since the TTS-160 does not provide a pulse guide status query.
+        /// Completion is detected by comparing elapsed time against
+        /// <see cref="MiscResources.PulseGuideDuration"/> and <see cref="MiscResources.PulseGuideStart"/>.
+        /// </remarks>
         internal static bool IsPulseGuiding
         {
-            //Pulse Guide query is not implemented in TTS-160 => track in driver
             get
             {
                 try
                 {
                     CheckConnected("IsPulseGuiding");
 
+                    /*
                     if (profileProperties.PulseGuideDurationCompliant)
                     {
                         if (MiscResources.EWPulseGuideFlag)
@@ -2027,6 +2488,37 @@ namespace ASCOM.TTS160.Telescope
                     {
                         return MiscResources.IsPulseGuiding;
                     }
+                    */
+                    
+                    
+                    if(profileProperties.PulseGuideDurationSynchronous)
+                    {
+                        return false;
+                    }
+                    else
+                    {
+                        if ( MiscResources.PulseGuideStart > DateTime.MinValue )
+                        {
+                            TimeSpan ts = DateTime.Now.Subtract(MiscResources.PulseGuideStart);
+                            if (ts.TotalMilliseconds >= MiscResources.PulseGuideDuration)
+                            {
+                                MiscResources.PulseGuideStart = DateTime.MinValue;
+                                MiscResources.IsPulseGuiding = false;
+                                return false;
+                            }
+                            else
+                            {
+                                return MiscResources.IsPulseGuiding;
+                            }
+                            
+                        }
+                        else
+                        {
+                            return MiscResources.IsPulseGuiding;
+                        }
+
+                    }
+
                 }
                 catch (Exception ex)
                 {
@@ -2043,10 +2535,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Convert float to two ints.  Taken from: Taken from: https://stackoverflow.com/questions/5124743/algorithm-for-simplifying-decimal-to-fractions/32903747#32903747
+        /// Converts a floating-point value to a <see cref="Fraction"/> (numerator/denominator) using
+        /// continued fraction expansion. Used by <see cref="MoveAxis"/> to convert axis rates to
+        /// hardware timer values.
         /// </summary>
-        /// <param name="Value">The double variable to be analyzed</param>
-        /// <param name="accuracy">Indicate how accurate the answer must be (between 0 and 1) </param>
+        /// <param name="value">The double value to convert to a fraction.</param>
+        /// <param name="accuracy">Maximum relative error tolerance (between 0 and 1, exclusive).</param>
+        /// <returns>A <see cref="Fraction"/> approximating <paramref name="value"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">If accuracy is not in (0, 1).</exception>
         internal static Fraction RealToFraction(double value, double accuracy)
         {
             if (accuracy <= 0.0 || accuracy >= 1.0)
@@ -2096,10 +2592,23 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope in one axis at the given rate.  
+        /// Move the telescope in one axis at the given rate.
         /// </summary>
-        /// <param name="Axis">The physical axis about which movement is desired</param>
-        /// <param name="Rate">The rate of motion (deg/sec) about the specified axis</param>
+        /// <param name="Axis">The physical axis about which movement is desired.</param>
+        /// <param name="Rate">The rate of motion (deg/sec) about the specified axis. 0 = stop.</param>
+        /// <remarks>
+        /// <para>Two firmware modes:</para>
+        /// <list type="bullet">
+        /// <item><description><b>Advanced (DEV_FIRMWARE):</b> Converts the requested rate to hardware timer
+        /// ticks using <see cref="RealToFraction"/>, then sends <c>:*MA{axis}{direction}{numerator},{denominator}#</c>.
+        /// Uses mount-specific tick constants (TPDH/TPDE) and clock frequency (57600 Hz).</description></item>
+        /// <item><description><b>Legacy:</b> Maps the rate to one of four LX200 slew speed commands
+        /// (<c>:RS#</c>, <c>:RM#</c>, <c>:RC#</c>, <c>:RG#</c>) followed by a directional move command.</description></item>
+        /// </list>
+        /// <para>Rate = 0 sends a stop command (<c>:Q{axis}#</c>) and triggers a settle timer via
+        /// <see cref="MiscResources"/>. A minimum delay of <see cref="MOVEAXIS_WAIT_TIME"/> ms is enforced
+        /// between commands to prevent mount buffer overflow.</para>
+        /// </remarks>
         internal static void MoveAxis(TelescopeAxes Axis, double Rate)
         {
 
@@ -2115,6 +2624,7 @@ namespace ASCOM.TTS160.Telescope
                 LogMessage("MoveAxis", $"Axis={Axis} rate={Rate}");
                 CheckConnected("MoveAxis");
                 CheckParked("MoveAxis");
+                //CheckGoto("MoveAxis");  //If we are in a goto, we cannot MoveAxis.
                 SlewingInternalUpdate();
 
                 if ( DEV_FIRMWARE )
@@ -2514,8 +3024,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to its park position, stop all motion (or restrict to a small safe range), and set <see cref="AtPark" /> to True.
+        /// Move the telescope to its park position, stop all motion, and set <see cref="AtPark" /> to True.
         /// </summary>
+        /// <remarks>
+        /// Sends the LX200 <c>:hP#</c> park command (blind). If already parked, the command is ignored.
+        /// The park position is configured in the setup dialog or via <see cref="SetPark"/>.
+        /// </remarks>
         internal static void Park()
         {
             try
@@ -2525,7 +3039,7 @@ namespace ASCOM.TTS160.Telescope
                 if (!AtPark)
                 {
                     Commander(":hP#", true, 0);
-                    AtPark = true;
+                    //AtPark = true;
                     LogMessage("Park", "Mount is Parked");
                 }
                 else
@@ -2541,6 +3055,18 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Converts equatorial coordinate deltas (RA/Dec in degrees) to alt-az pulse guide durations (milliseconds).
+        /// Used by <see cref="PulseGuide"/> in equatorial frame mode to transform RA/Dec guide corrections
+        /// into altitude and azimuth motor commands.
+        /// </summary>
+        /// <param name="deltara">RA offset in degrees.</param>
+        /// <param name="deltadec">Dec offset in degrees.</param>
+        /// <returns>A tuple of (altitude duration ms, azimuth duration ms). Negative = reverse direction.</returns>
+        /// <remarks>
+        /// Uses the ASCOM Transform object to compute the alt-az delta from the RA/Dec delta,
+        /// then converts the angular offsets to pulse durations based on the current guide rate.
+        /// </remarks>
         internal static (int, int) RaDecToAltAz(double deltara, double deltadec)
         {
             int dur1;
@@ -2603,11 +3129,24 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Moves the scope in the given direction for the given interval or time at
-        /// the rate given by the corresponding guide rate property
+        /// Moves the scope in the given direction for the given interval at the guide rate.
         /// </summary>
-        /// <param name="Direction">The direction in which the guide-rate motion is to be made</param>
-        /// <param name="Duration">The duration of the guide-rate motion (milliseconds)</param>
+        /// <param name="Direction">The direction in which the guide-rate motion is to be made.</param>
+        /// <param name="Duration">The duration of the guide-rate motion (milliseconds, 0-9999).</param>
+        /// <remarks>
+        /// <para>Two modes depending on <see cref="ProfileProperties.PulseGuideEquFrame"/>:</para>
+        /// <list type="bullet">
+        /// <item><description><b>Equatorial frame (PulseGuideAwesome):</b> Converts the equatorial N/S/E/W
+        /// guide corrections to alt-az motor commands via <see cref="RaDecToAltAz"/>, compensating for
+        /// field rotation on the Alt/Az mount.</description></item>
+        /// <item><description><b>Standard:</b> Sends LX200 pulse guide commands directly
+        /// (<c>:Mg{e|w|n|s}{DDDD}#</c>). Note: N/S directions are reversed for the TTS-160.</description></item>
+        /// </list>
+        /// <para>When altitude compensation is enabled (<see cref="ProfileProperties.GuideComp"/> = 1),
+        /// E/W guide durations are divided by cos(altitude) to compensate for convergence near zenith,
+        /// clamped by <see cref="ProfileProperties.GuideCompMaxDelta"/>.</para>
+        /// <para>Can operate synchronously (blocking) or asynchronously per profile setting.</para>
+        /// </remarks>
         internal static void PulseGuide(GuideDirections Direction, int Duration)
         {
 
@@ -2687,9 +3226,6 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("PulseGuideAwesome", $"Dir2: {Dir2}");
                     LogMessage("PulseGuideAwesome", $"Dur2: {dur2}");
 
-                    //double curRA = RightAscension;
-                    //double curDec = Declination;
-
                     if (dur1 > 0)
                     {
                         PulseGuideAwesome(Dir1, dur1);
@@ -2699,22 +3235,12 @@ namespace ASCOM.TTS160.Telescope
                         PulseGuideAwesome(Dir2, dur2);
                     }
 
-                    if (!profileProperties.PulseGuideDurationCompliant) { Thread.Sleep(Duration); }
-
-                    /*
-                    //double SIDEREAL_SECONDS_TO_SI_SECONDS = 0.99726956631945;
-                    //deltara = deltara / (15 * SIDEREAL_SECONDS_TO_SI_SECONDS);  //convert to hours                   
-                    Thread.Sleep(1000);
-                    double RAfact = RightAscension * 15;
-                    double Decfact = Declination;
-                    double deltaraact = RAfact - RA0;
-                    double deltadecact = Decfact - Dec0;
-                    LogMessage("PulseGuideAwesome", $"Initial RA: {utilities.DegreesToHMS(RA0, ":", ":", ":", 4)}; Initial Dec: {utilities.DegreesToDMS(Dec0, ":", ":", ":", 4)}");
-                    LogMessage("PulseGuideAwesome", $"  Final RA: {utilities.DegreesToHMS(RAfact, ":", ":", ":", 4)};   Final Dec: {utilities.DegreesToDMS(Decfact, ":", ":", ":", 4)}");
-                    LogMessage("PulseGuideAwesome", $"   Goal RA: {utilities.DegreesToHMS(RAf, ":", ":", ":", 4)};    Goal Dec: {utilities.DegreesToDMS(Decf, ":", ":", ":", 4)}");
-                    LogMessage("PulseGuideAwesome", $"     Delta RA: {utilities.DegreesToHMS(deltaraact, ":", ":", ":", 4)};      Delta Dec: {utilities.DegreesToDMS(deltadecact, ":", ":", ":", 4)}");
-                    LogMessage("PulseGuideAwesome", $"Goal Delta RA: {utilities.DegreesToHMS(deltara, ":", ":", ":", 4)}; Goal Delta Dec: {utilities.DegreesToDMS(deltadec, ":", ":", ":", 4)}");
-                    */
+                    if (profileProperties.PulseGuideDurationSynchronous) { Thread.Sleep(Duration); MiscResources.IsPulseGuiding = false; }
+                    else 
+                    {
+                        MiscResources.PulseGuideDuration = Duration;
+                        MiscResources.PulseGuideStart = DateTime.Now;
+                    }
 
                     return;
 
@@ -2742,24 +3268,11 @@ namespace ASCOM.TTS160.Telescope
                     (Direction == GuideDirections.guideNorth || Direction == GuideDirections.guideSouth))
                     throw new InvalidOperationException("Unable to PulseGuide while moving same axis.");
 
-                if (IsPulseGuiding)
-                    switch (Direction)
-                    {
-                        case GuideDirections.guideNorth:
-                        case GuideDirections.guideSouth:
-                            if (MiscResources.NSPulseGuideFlag) { throw new InvalidOperationException("Already PulseGuiding on NS axis, please wait"); }
-                            break;
-                        case GuideDirections.guideEast:
-                        case GuideDirections.guideWest:
-                            if (MiscResources.EWPulseGuideFlag) { throw new InvalidOperationException("Already PulseGuiding on EW axis, please wait"); }
-                            break;
-
-                    }
-
                 //Check to see if GuideComp is enabled, then correct pulse length if required
                 int maxcomp = profileProperties.GuideCompMaxDelta; //set maximum allowable compensation time in msec (PHD2 is 1 sec)
                 int bufftime = profileProperties.GuideCompBuffer; //set buffer time to decrement from max in msec to prevent tripping PHD2 limit
                 double maxalt = 89; //Sufficiently close to 90 to allow exceeding maxcomp while preventing divide by zero
+                MiscResources.PulseGuideDuration = Duration;
 
                 if (profileProperties.GuideComp == 1)
                 {
@@ -2785,6 +3298,7 @@ namespace ASCOM.TTS160.Telescope
                                 tl.LogMessage("PulseGuideComp", "Setting compensated time to: " + compDuration.ToString("D4"));
                             }
                             Duration = compDuration; //Compensated time is verified good, replace the ordered Duration
+                            MiscResources.PulseGuideDuration = Duration;
                             break;
 
                     }
@@ -2799,45 +3313,31 @@ namespace ASCOM.TTS160.Telescope
                         var guidecmde = ":Mge" + Duration.ToString("D4") + "#";
                         LogMessage("GuideEast", guidecmde);
                         Commander(guidecmde, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.EWPulseGuideFlag = true;
-                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideNorth:
                         var guidecmdn = ":Mgs" + Duration.ToString("D4") + "#";  //North and south are reversed...
                         LogMessage("GuideNorth", guidecmdn);
                         Commander(guidecmdn, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.NSPulseGuideFlag = true;
-                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideSouth:
                         var guidecmds = ":Mgn" + Duration.ToString("D4") + "#";  //North and south are reversed...
                         LogMessage("GuideSouth", guidecmds);
                         //CommandBlind(guidecmds, true);
                         Commander(guidecmds, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.NSPulseGuideFlag = true;
-                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideWest:
                         var guidecmdw = ":Mgw" + Duration.ToString("D4") + "#";
                         LogMessage("GuideWest", guidecmdw);
                         Commander(guidecmdw, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.EWPulseGuideFlag = true;
-                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                 }
-                if (!profileProperties.PulseGuideDurationCompliant) { IsPulseGuiding = false; }
+
+                MiscResources.PulseGuideStart = DateTime.Now;
+                if (profileProperties.PulseGuideDurationSynchronous) { Thread.Sleep(Duration); MiscResources.IsPulseGuiding = false; }
 
                 LogMessage("PulseGuide", "pulse guide command complete");
 
@@ -2849,11 +3349,19 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Sends a single-axis pulse guide command in body-frame coordinates. Called by
+        /// <see cref="PulseGuide"/> when equatorial frame mode is active, after the RA/Dec
+        /// correction has been decomposed into alt-az components.
+        /// </summary>
+        /// <param name="Direction">The guide direction (mapped to body frame: N/S reversed, E/W reversed).</param>
+        /// <param name="Duration">The duration in milliseconds (0-9999).</param>
+        /// <remarks>
+        /// The TTS-160 responds in a reversed body frame: GuideNorth = motion in -elevation direction.
+        /// E/W directions are also 180° out in azimuth, so the command mappings are inverted.
+        /// </remarks>
         internal static void PulseGuideAwesome(GuideDirections Direction, int Duration)
         {
-
-            //Note that it is not clear if TTS-160 responds in body frame or LH frame
-            //Further experiments show that TTS-160 responds in the (reverse?) body frame: GuideNorth = motion in -el direction.  Unsure GuideE/W
 
             LogMessage("PulseGuideAwesome", $"pulse guide direction {Direction} duration {Duration}");
             try
@@ -2874,57 +3382,6 @@ namespace ASCOM.TTS160.Telescope
                     (Direction == GuideDirections.guideNorth || Direction == GuideDirections.guideSouth))
                     throw new InvalidOperationException("Unable to PulseGuide while moving same axis.");
 
-                if (IsPulseGuiding)
-                    switch (Direction)
-                    {
-                        case GuideDirections.guideNorth:
-                        case GuideDirections.guideSouth:
-                            if (MiscResources.NSPulseGuideFlag) { throw new InvalidOperationException("Already PulseGuiding on NS axis, please wait"); }
-                            break;
-                        case GuideDirections.guideEast:
-                        case GuideDirections.guideWest:
-                            if (MiscResources.EWPulseGuideFlag) { throw new InvalidOperationException("Already PulseGuiding on EW axis, please wait"); }
-                            break;
-
-                    }
-
-                /*  GuideComp should not be executed when Topocentric Equatorial guiding is enabled
-                //Check to see if GuideComp is enabled, then correct pulse length if required
-                int maxcomp = profileProperties.GuideCompMaxDelta; //set maximum allowable compensation time in msec (PHD2 is 1 sec)
-                int bufftime = profileProperties.GuideCompBuffer; //set buffer time to decrement from max in msec to prevent tripping PHD2 limit
-                double maxalt = 89; //Sufficiently close to 90 to allow exceeding maxcomp while preventing divide by zero
-
-                if (profileProperties.GuideComp == 1)
-                {
-                    switch (Direction)
-                    {
-                        case GuideDirections.guideEast:
-                        case GuideDirections.guideWest:
-
-                            tl.LogMessage("PulseGuideComp", "Applying Altitude Compensation");
-                            double alt = Altitude;
-
-                            if (alt > maxalt) { alt = maxalt; }; //Prevent receiving divide by zero by limiting altitude to <90 deg
-
-                            double altrad = alt * Math.PI / 180; //convert to radians
-                            int compDuration = (int)Math.Round(Duration / Math.Cos(altrad)); //calculate compensated duration
-                            tl.LogMessage("PulseGuideComp", "Altitude: " + alt.ToString() + " deg (" + altrad.ToString() + " rad)");
-                            tl.LogMessage("PulseGuideComp", "Compensated Time: " + compDuration.ToString("D4"));
-
-                            if (compDuration > (Duration + maxcomp)) //verify we do not exceed maximum time value
-                            {
-                                compDuration = Duration + maxcomp - bufftime; //clip compensated time to maximum time value (with some buffer)
-                                tl.LogMessage("PulseGuideComp", "Compensated Time exceeds maximum: " + (Duration + maxcomp).ToString("D4"));
-                                tl.LogMessage("PulseGuideComp", "Setting compensated time to: " + compDuration.ToString("D4"));
-                            }
-                            Duration = compDuration; //Compensated time is verified good, replace the ordered Duration
-                            break;
-
-                    }
-
-                }
-                */
-
                 IsPulseGuiding = true;
                 LogMessage("PulseGuide", "Guiding with Pulse Guide command");
                 switch (Direction)
@@ -2933,44 +3390,27 @@ namespace ASCOM.TTS160.Telescope
                         var guidecmde = ":Mgw" + Duration.ToString("D4") + "#";  //Maybe 180 out in Az...
                         LogMessage("GuideEast", guidecmde);
                         Commander(guidecmde, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.EWPulseGuideFlag = true;
-                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideNorth:
                         var guidecmdn = ":Mgs" + Duration.ToString("D4") + "#";  //North and south are switched...
                         LogMessage("GuideNorth", guidecmdn);
                         Commander(guidecmdn, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.NSPulseGuideFlag = true;
-                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideSouth:
                         var guidecmds = ":Mgn" + Duration.ToString("D4") + "#";  //North and south are switched...
                         LogMessage("GuideSouth", guidecmds);
                         Commander(guidecmds, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.NSPulseGuideFlag = true;
-                            MiscResources.NSPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                     case GuideDirections.guideWest:
                         var guidecmdw = ":Mge" + Duration.ToString("D4") + "#";  //Maybe 180 out in Az
                         LogMessage("GuideWest", guidecmdw);
                         Commander(guidecmdw, true, 0);
-                        if (profileProperties.PulseGuideDurationCompliant)
-                        {
-                            MiscResources.EWPulseGuideFlag = true;
-                            MiscResources.EWPulseGuideFinish = DateTime.Now.AddMilliseconds(Duration);
-                        }
+
                         break;
                 }
-                if (!profileProperties.PulseGuideDurationCompliant) { IsPulseGuiding = false; }
 
                 LogMessage("PulseGuideAwesome", "pulse guide command complete");
 
@@ -2985,8 +3425,14 @@ namespace ASCOM.TTS160.Telescope
 
         /// <summary>
         /// The right ascension (hours) of the telescope's current equatorial coordinates,
-        /// in the coordinate system given by the EquatorialSystem property
+        /// in the coordinate system given by the <see cref="EquatorialSystem"/> property.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24).</para>
+        /// <para>On advanced firmware (>= 355), queries via <c>:*GR#</c> (radians, max precision),
+        /// then converts radians → degrees → hours (÷15). Result is conditioned to [0,24) range.
+        /// On legacy firmware, uses <c>:GR#</c> (HMS format).</para>
+        /// </remarks>
         internal static double RightAscension
         {
             get
@@ -3028,33 +3474,122 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The right ascension tracking rate offset from sidereal (seconds per sidereal second, default = 0.0)
+        /// The right ascension tracking rate offset from sidereal (seconds per sidereal second, default = 0.0).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: seconds of RA per sidereal second.</para>
+        /// <para>Get: queries mount via <c>:*RR#</c> (returns arcsec/sec), then converts to sidereal seconds
+        /// by multiplying by 0.9972695677 (ratio of solar to sidereal day).</para>
+        /// <para>Set: converts from sidereal sec/sec to arcsec/sec by multiplying by 1.00273790935,
+        /// then sends <c>:*SR{value}#</c>. Valid range: [-99.9999999999, 99.9999999999] arcsec/sec.</para>
+        /// <para>Requires <see cref="TrackingRate"/> to be <see cref="DriveRates.driveSidereal"/>.</para>
+        /// </remarks>
         internal static double RightAscensionRate
         {
             get
             {
-                //RightAscensionRate is not implemented by TTS-160, return 0.0
-                double rightAscensionRate = 0.0;
-                LogMessage("RightAscensionRate get", $"{rightAscensionRate}");
-                return rightAscensionRate;
+
+                try
+                {
+                    CheckConnected("RightAscensionRate Get");
+
+                    double rarate = 0.0;
+
+                    string cmd = ":*RR#"; //Get the current RA rate
+                    LogMessage("RightAscensionRate get", $"{cmd}");
+                    var result = Commander(cmd, true, 2).TrimEnd('#');
+                    LogMessage("RightAscensionRate get", $"Retrieved value: {result} arc sec/sec");
+
+                    rarate = double.Parse(result, CultureInfo.InvariantCulture) * 0.9972695677; //return in sidereal sec/sec
+                    LogMessage("RightAscensionRate get", $"Returned Value: {rarate} sidereal sec/sec");
+
+                    return rarate;
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("RightAscensionRate get", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
             set
             {
-                LogMessage("RightAscensionRate Set", "Not implemented");
-                throw new PropertyNotImplementedException("RightAscensionRate", true);
+
+                try
+                {
+                    //Declination Rate not implemented by TTS-160
+                    //LogMessage("DeclinationRate Set", "Not implemented");
+                    //throw new PropertyNotImplementedException("DeclinationRate", true);
+
+                    CheckConnected("RightAsecnsionRate Set");
+
+                    if (TrackingRate != DriveRates.driveSidereal)
+                    {
+                        throw new InvalidOperationException("Tracking must be set to Sidereal before setting RightAscension Rate");
+                    }
+
+                    LogMessage("RightAscensionRate set", $"{value} sidereal sec/sec");
+
+                    double rarate = value * 1.00273790935; //convert to arc sec/sec
+
+                    if (Math.Abs(rarate) > 99.9999999999)
+                    {
+                        throw new InvalidValueException("DeclinationRate", rarate.ToString(CultureInfo.InvariantCulture), "[-99.9999999999, 99.9999999999]");
+                    }
+                    string cmd = $":*SR{rarate.ToString("+00.0000000000;-00.0000000000")}#";
+                    LogMessage("RightAscensionRate set", $"Sending command: {cmd}");
+                    Commander(cmd, true, 0);
+
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("DeclinationRate set", $"Error: {ex.Message}");
+                    throw;
+                }
+
             }
         }
 
         /// <summary>
-        /// Sets the telescope's park position to be its current position.
+        /// Sets the telescope's park position to its current Alt/Az position.
         /// </summary>
+        /// <remarks>
+        /// Reads current <see cref="Altitude"/> and <see cref="Azimuth"/>, rounds to integers,
+        /// and sends <c>:*PS1{az}{alt}#</c> to the mount to store the custom park location.
+        /// </remarks>
         internal static void SetPark()
         {
-            LogMessage("SetPark", "Not implemented");
-            throw new MethodNotImplementedException("SetPark");
+            
+            try
+            {
+                CheckConnected("SetPark");
+
+                profileProperties.ParkLoc = true;
+                profileProperties.ParkLocAlt = (int)Math.Round(Altitude);
+                profileProperties.ParkLocAz = (int)Math.Round(Azimuth);
+
+                LogMessage("SetPark", "Sending updated Park Location to Mount.");
+                LogMessage("SetPark", $"Park in Place: {!profileProperties.ParkLoc}");
+                LogMessage("SetPark", $"Custom Park Location Altitude: {profileProperties.ParkLocAlt}");
+                LogMessage("SetPark", $"Custom Park Location Azimuth: {profileProperties.ParkLocAz}");
+                Commander($":*PS1{profileProperties.ParkLocAz.ToString("D3")}{profileProperties.ParkLocAlt.ToString("D2")}#", true, 0);
+
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+
+
         }
 
+        /// <summary>
+        /// Calculates the side of pier based on the hour angle of the given right ascension.
+        /// </summary>
+        /// <param name="rightAscension">Right ascension in hours.</param>
+        /// <returns><see cref="PierSide.pierEast"/> if hour angle > 0 (object west of meridian),
+        /// <see cref="PierSide.pierWest"/> otherwise.</returns>
         internal static PierSide CalculateSideOfPier(double rightAscension)
         {
             double hourAngle = astroUtils.ConditionHA(SiderealTime - rightAscension);
@@ -3088,8 +3623,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal)
+        /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal).
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24).</para>
+        /// <para>Queries the mount's GMST via LX200 <c>:GS#</c> command, then converts to local sidereal
+        /// time by adding the site longitude offset (longitude / 360 * 24). Result conditioned to [0,24).</para>
+        /// <para>Also calls <see cref="SlewingInternalUpdate"/> to refresh slewing state on each read.</para>
+        /// </remarks>
         internal static double SiderealTime
         {
             get
@@ -3116,8 +3657,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The elevation above mean sea level (meters) of the site at which the telescope is located
+        /// The elevation above mean sea level (meters) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: meters. Valid range: -300 to 10000.</para>
+        /// <para>Stored in the ASCOM Profile; not queried from the mount hardware.</para>
+        /// </remarks>
         internal static double SiteElevation
         {
             get
@@ -3141,8 +3686,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The geodetic(map) latitude (degrees, positive North, WGS84) of the site at which the telescope is located.
+        /// The geodetic (map) latitude (degrees, positive North, WGS84) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90).</para>
+        /// <para>If DriverSiteOverride is enabled in the profile, returns the driver-configured value.
+        /// Otherwise, queries the mount via LX200 <c>:Gt#</c> (or <c>:*Gt#</c> on advanced firmware).</para>
+        /// <para>See <see cref="SiteLatitudeInit"/> for the variant that always reads from the mount.</para>
+        /// </remarks>
         internal static double SiteLatitude
         {
             get
@@ -3198,6 +3749,13 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Reads the site latitude directly from the mount hardware, bypassing any driver override.
+        /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees. Always queries the mount via <c>:Gt#</c> (or <c>:*Gt#</c> on advanced firmware).</para>
+        /// <para>Used during disconnect to save the mount's actual position back to the ASCOM Profile.</para>
+        /// </remarks>
         internal static double SiteLatitudeInit
         {
             get
@@ -3242,6 +3800,13 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The longitude (degrees, positive East, WGS84) of the site at which the telescope is located.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-180 to +180), positive East.</para>
+        /// <para>If DriverSiteOverride is enabled in the profile, returns the driver-configured value.
+        /// Otherwise, queries mount via <c>:Gg#</c> (or <c>:*Gg#</c> on advanced firmware).</para>
+        /// <para>Note: the LX200 protocol returns longitude as east-negative, so the value is negated
+        /// to convert to the ASCOM convention (west-negative/east-positive).</para>
+        /// </remarks>
         internal static double SiteLongitude
         {
             get
@@ -3298,6 +3863,14 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Reads the site longitude directly from the mount hardware, bypassing any driver override.
+        /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (west-negative/east-positive). Always queries the mount via
+        /// <c>:Gg#</c> (or <c>:*Gg#</c> on advanced firmware), with the same east-negative inversion.</para>
+        /// <para>Used during disconnect to save the mount's actual position back to the ASCOM Profile.</para>
+        /// </remarks>
         internal static double SiteLongitudeInit
         {
             get
@@ -3371,10 +3944,17 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given local horizontal coordinates
-        /// This method must be implemented if <see cref="CanSlewAltAz" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the given local horizontal coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
+        /// <param name="Azimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="Altitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Converts Alt/Az to equatorial coordinates using the ASCOM Transform, temporarily enables
+        /// tracking for the slew, then delegates to <see cref="SlewToCoordinates"/>. Tracking is
+        /// restored to its prior state after the slew via <see cref="MiscResources.TrackSetFollower"/>.
+        /// The previous target coordinates are preserved and restored after the slew.
+        /// </remarks>
         internal static void SlewToAltAz(double Azimuth, double Altitude)
         {
             //LogMessage("SlewToAltAz", "Not implemented");
@@ -3444,12 +4024,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given local horizontal coordinates.
-        /// This method must be implemented if <see cref="CanSlewAltAzAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the given local horizontal coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
-        /// <param name="Azimuth">Azimuth to which to move</param>
-        /// <param name="Altitude">Altitude to which to move to</param>
+        /// <param name="Azimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="Altitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Same as <see cref="SlewToAltAz"/> but delegates to <see cref="SlewToCoordinatesAsync"/>
+        /// for non-blocking operation. Handles J2000 ↔ topocentric conversion based on <see cref="MountEpoch"/>.
+        /// </remarks>
         internal static void SlewToAltAzAsync(double Azimuth, double Altitude)
         {
             LogMessage("SlewToAltAzAsync", "Not implemented");
@@ -3494,13 +4077,30 @@ namespace ASCOM.TTS160.Telescope
                     curtargRA = 0;
                 }
 
+                //Check for mount Epoch
+                double sendRA, sendDec;
+                bool epoch = MountEpoch;
+                if( epoch )
+                {
+                    sendRA = T.RATopocentric;
+                    sendDec = T.DECTopocentric;
+                }
+                else
+                {
+                    sendRA = T.RAJ2000;
+                    sendDec = T.DecJ2000;
+                }
+
                 //MiscResources.SlewAltAzTrackOverride = true;
                 Tracking = true;
                 MiscResources.TrackSetFollower = false; //turn off tracking after slew!
                 LogMessage("SlewToAltAzAsync", "Calling SlewToCoordinatesAsync");
                 LogMessage("SlewToAltAzAsync", $"Az: {Azimuth}; Alt: {Altitude}");
-                LogMessage("SlewToAltAzAsync", "Derived Ra: " + utilities.HoursToHMS(T.RATopocentric, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(T.DECTopocentric, ":", ":"));
-                SlewToCoordinatesAsync(T.RATopocentric, T.DECTopocentric);
+                if( epoch )
+                    LogMessage("SlewToAltAzAsync", "Derived Ra: " + utilities.HoursToHMS(sendRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(sendDec, ":", ":"));
+                else
+                    LogMessage("SlewToAltAzAsync", "J2000 Derived Ra: " + utilities.HoursToHMS(sendRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(sendDec, ":", ":"));
+                SlewToCoordinatesAsync(sendRA, sendDec);
                 MiscResources.SlewAltAzTrackOverride = false;
                 //tl.LogMessage("SlewToAltAzAsync", "Track override disabled");
 
@@ -3516,10 +4116,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given equatorial coordinates.  
-        /// This method must be implemented if <see cref="CanSlew" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the given equatorial coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
+        /// <param name="RightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="Declination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// Sets <see cref="TargetRightAscension"/> and <see cref="TargetDeclination"/>,
+        /// then delegates to <see cref="SlewToTarget"/>. Requires tracking to be enabled.
+        /// </remarks>
         internal static void SlewToCoordinates(double RightAscension, double Declination)
         {
             LogMessage("SlewToCoordinates", "Setting Coordinates as Target and Slewing");
@@ -3558,10 +4163,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given equatorial coordinates.
-        /// This method must be implemented if <see cref="CanSlewAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the given equatorial coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
+        /// <param name="RightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="Declination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// Sets target coordinates, then delegates to <see cref="SlewToTargetAsync"/>.
+        /// </remarks>
         internal static void SlewToCoordinatesAsync(double RightAscension, double Declination)
         {
             LogMessage("SlewToCoordinatesAsync", "Setting Coordinates as Target and Slewing");
@@ -3601,11 +4210,17 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
-        /// This method must be implemented if <see cref="CanSlew" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
-
+        /// <remarks>
+        /// <para>Sends LX200 <c>:MS#</c> (Move/Slew) command. A boolean response of '1' = object below horizon.</para>
+        /// <para>If the mount is in J2000 mode, converts topocentric targets to J2000 before sending.</para>
+        /// <para>Polls <see cref="Slewing"/> in a loop (200ms interval, 180s timeout) until the mount
+        /// reports slewing complete. Verifies final position is within 1 arcminute of target; if not,
+        /// after 300 consecutive out-of-tolerance readings, logs a fault warning.</para>
+        /// <para>Settle time from <see cref="SlewSettleTime"/> is applied after the mount stops.</para>
+        /// </remarks>
         internal static void SlewToTarget()
         {
             LogMessage("SlewToTarget", "Slewing To Target");
@@ -3622,6 +4237,36 @@ namespace ASCOM.TTS160.Telescope
                 if (MiscResources.IsSlewingToTarget) //Are we currently in a GoTo?
                 {
                     throw new InvalidOperationException("Error: GoTo In Progress");
+                }
+
+                //Check for mount Epoch
+                double J2000RA, J2000Dec;
+                double topoRA = TargetRightAscension;
+                double topoDec = TargetDeclination;
+                bool epoch = MountEpoch;
+                if (!epoch)
+                {
+                    LogMessage("SlewToTarget", "Mount is using J2000 coordinates, updating target values on mount");
+                    //Convert AltAz to RaDec Topocentric
+                    T.SiteLatitude = SiteLatitude;
+                    T.SiteLongitude = SiteLongitude;
+                    T.SiteElevation = SiteElevation;
+                    T.SiteTemperature = 20;
+                    T.Refraction = false;
+                    T.SetTopocentric(topoRA, topoDec);
+
+                    J2000RA = T.RAJ2000;
+                    J2000Dec = T.DecJ2000;
+
+                    LogMessage("SlewToTarget", "Ra: " + utilities.HoursToHMS(topoRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(topoDec, ":", ":"));
+                    LogMessage("SlewToTarget", "J2000 Derived Ra: " + utilities.HoursToHMS(J2000RA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(J2000Dec, ":", ":"));
+
+                    TargetRightAscension = J2000RA;  //Send new coords to mount
+                    TargetDeclination = J2000Dec;
+
+                    MiscResources.Target.RightAscension = topoRA;  //Restore Topocentric values to driver variables (since that is what we work in)
+                    MiscResources.Target.Declination = topoDec;
+
                 }
 
                 bool wasTracking = Tracking;
@@ -3657,6 +4302,7 @@ namespace ASCOM.TTS160.Telescope
                 Thread.Sleep(SlewSettleTime * 1000);
                 Slewing = false;
                 MiscResources.IsSlewingToTarget = false;
+
                 return;
 
                 /*
@@ -3774,10 +4420,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" />  coordinates.
-        /// This method must be implemented if <see cref="CanSlewAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
+        /// <remarks>
+        /// <para>Sends LX200 <c>:MS#</c> command and returns immediately. The <see cref="Slewing"/>
+        /// property getter acts as the state machine that detects slew completion, settle time,
+        /// and error checking.</para>
+        /// <para>If the mount is in J2000 mode, converts topocentric targets to J2000 before sending.</para>
+        /// </remarks>
         internal static void SlewToTargetAsync()
         {
 
@@ -3792,9 +4443,40 @@ namespace ASCOM.TTS160.Telescope
 
                 if (!Tracking && !MiscResources.SlewAltAzTrackOverride) { throw new ASCOM.InvalidOperationException("Cannot SlewToTargetAsync while not Tracking"); }
 
+                //This should, instead, halt the current goto and start a new one                
                 if (MiscResources.IsSlewingToTarget) //Are we currently in a GoTo?
                 {
                     throw new ASCOM.InvalidOperationException("Error: GoTo In Progress");
+                }
+
+                //Check for mount Epoch
+                double J2000RA, J2000Dec;
+                double topoRA = TargetRightAscension;
+                double topoDec = TargetDeclination;
+                bool epoch = MountEpoch;
+                if (!epoch)
+                {
+                    LogMessage("SlewToTarget", "Mount is using J2000 coordinates, updating target values on mount");
+                    //Convert AltAz to RaDec Topocentric
+                    T.SiteLatitude = SiteLatitude;
+                    T.SiteLongitude = SiteLongitude;
+                    T.SiteElevation = SiteElevation;
+                    T.SiteTemperature = 20;
+                    T.Refraction = false;
+                    T.SetTopocentric(topoRA, topoDec);
+
+                    J2000RA = T.RAJ2000;
+                    J2000Dec = T.DecJ2000;
+
+                    LogMessage("SlewToTargetAsync", "Ra: " + utilities.HoursToHMS(topoRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(topoDec, ":", ":"));
+                    LogMessage("SlewToTargetAsync", "J2000 Derived Ra: " + utilities.HoursToHMS(J2000RA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(J2000Dec, ":", ":"));
+
+                    TargetRightAscension = J2000RA;  //Send new coords to mount
+                    TargetDeclination = J2000Dec;
+
+                    MiscResources.Target.RightAscension = topoRA;  //Restore Topocentric values to driver variables (since that is what we work in)
+                    MiscResources.Target.Declination = topoDec;
+
                 }
 
                 bool result = bool.Parse(Commander(":MS#", true, 1));
@@ -3820,6 +4502,20 @@ namespace ASCOM.TTS160.Telescope
         /// True if telescope is in the process of moving in response to one of the
         /// Slew methods or the <see cref="MoveAxis" /> method, False at all other times.
         /// </summary>
+        /// <remarks>
+        /// <para>The getter acts as a state machine managing slew completion. It handles:</para>
+        /// <list type="bullet">
+        /// <item><description>Slew-to-target completion: queries <c>:D#</c> for mount slewing status,
+        /// checks position convergence (3 consecutive readings within 0.5 arcsec), and verifies
+        /// final position is within 1 arcminute of target.</description></item>
+        /// <item><description>Settle time: after motion stops, waits for <see cref="SlewSettleTime"/>
+        /// seconds before reporting slew complete.</description></item>
+        /// <item><description>MoveAxis settle: detects when axis motion has stopped and clears
+        /// movement flags, restoring tracking state via <see cref="TrackSetFollower"/>.</description></item>
+        /// <item><description>PulseGuide completion: checks elapsed time against guide duration.</description></item>
+        /// </list>
+        /// <para>The setter directly updates <see cref="MiscResources.IsSlewing"/>.</para>
+        /// </remarks>
         internal static bool Slewing
         {
             //'Slewing' query (:D#) _is_ implemented in TTS-160, keep track in driver.
@@ -3939,7 +4635,8 @@ namespace ASCOM.TTS160.Telescope
                                             MiscResources.IsSlewingToTarget = false;  //If I was slewing to a target, I am no longer
                                             MiscResources.MovingPrimary = false;
                                             MiscResources.MovingSecondary = false;
-                                            MiscResources.SlewSettleStart = DateTime.MinValue;                                       
+                                            MiscResources.SlewSettleStart = DateTime.MinValue;
+                                            TrackSetFollower(MiscResources.TrackSetFollower);
                                             return false;
                                         }
                                         else
@@ -4160,6 +4857,12 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Matches the scope's local horizontal coordinates to the given local horizontal coordinates.
         /// </summary>
+        /// <param name="TAzimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="TAltitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Converts Alt/Az to equatorial via the Transform, then delegates to <see cref="SyncToCoordinates"/>.
+        /// Waits <see cref="SYNC_WAIT_TIME"/> ms for the sync to take effect on the mount.
+        /// </remarks>
         internal static void SyncToAltAz(double TAzimuth, double TAltitude)
         {
             try
@@ -4207,6 +4910,16 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Matches the scope's equatorial coordinates to the given equatorial coordinates.
         /// </summary>
+        /// <param name="TRightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="TDeclination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// <para>Sets the target coordinates on the mount, then sends the sync command.</para>
+        /// <para>On advanced firmware with Align-on-Sync enabled, uses <c>:*CM#</c> which returns
+        /// the remaining alignment points. When all points are consumed, Align-on-Sync is disabled.</para>
+        /// <para>On standard mode, uses <c>:CM#</c>. Handles J2000 ↔ topocentric conversion
+        /// based on <see cref="MountEpoch"/>.</para>
+        /// <para>Waits <see cref="SYNC_WAIT_TIME"/> ms after sync for mount registers to update.</para>
+        /// </remarks>
         internal static void SyncToCoordinates(double TRightAscension, double TDeclination)
         {
             tl.LogMessage("SyncToCoordinates", "Setting Coordinates as Target and Syncing");
@@ -4237,18 +4950,52 @@ namespace ASCOM.TTS160.Telescope
 
                 if (DEV_FIRMWARE)
                 {
+
+                    //Check for mount Epoch
+                    double J2000RA, J2000Dec;
+                    double topoRA = TargetRightAscension;
+                    double topoDec = TargetDeclination;
+                    bool epoch = MountEpoch;
+                    if (!epoch)
+                    {
+                        LogMessage("SyncToTarget", "Mount is using J2000 coordinates, updating target values on mount");
+                        //Convert AltAz to RaDec Topocentric
+                        T.SiteLatitude = SiteLatitude;
+                        T.SiteLongitude = SiteLongitude;
+                        T.SiteElevation = SiteElevation;
+                        T.SiteTemperature = 20;
+                        T.Refraction = false;
+                        T.SetTopocentric(topoRA, topoDec);
+
+                        J2000RA = T.RAJ2000;
+                        J2000Dec = T.DecJ2000;
+
+                        LogMessage("SyncToTarget", "Ra: " + utilities.HoursToHMS(topoRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(topoDec, ":", ":"));
+                        LogMessage("SyncToTarget", "J2000 Derived Ra: " + utilities.HoursToHMS(J2000RA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(J2000Dec, ":", ":"));
+
+                        TargetRightAscension = J2000RA;  //Send new coords to mount
+                        TargetDeclination = J2000Dec;
+
+                        MiscResources.Target.RightAscension = topoRA;  //Restore Topocentric values to driver variables (since that is what we work in)
+                        MiscResources.Target.Declination = topoDec;
+
+                    }
+
                     if (MiscResources.AlignOnSyncEnabled)
                     {
                         LogMessage("SyncToCoordinates", "Advanced Firmware Detected");
                         LogMessage("SyncToCoordinates", $"Align on Sync is: {MiscResources.AlignOnSyncEnabled}");
                         LogMessage("SyncToCoordinates", $"Using extended Sync method");
+
                         double presyncRA = RightAscension;
                         double presyncDec = Declination;
+
                         string ret = Commander(":*CM#", true, 2);
                         LogMessage("SyncToCoordinates", "Trying to Parse this string: " + ret);
                         int retpoints = int.Parse(ret.TrimEnd('#'));
                         LogMessage("SyncToCoordinates", $"Parsed as: {retpoints}");
                         retpoints--;
+
                         if (retpoints > 0)
                         {
                             LogMessage("SyncToCoordinates", $"Complete, {retpoints} points remain.");
@@ -4267,6 +5014,7 @@ namespace ASCOM.TTS160.Telescope
                             MiscResources.AlignOnSyncEnabled = false;
                             MiscResources.AlignOnSyncPoints = 0;
                         }
+
                         //var ret = Commander(":*CM#", true, 2);
                         LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
                         Thread.Sleep(SYNC_WAIT_TIME);
@@ -4277,14 +5025,17 @@ namespace ASCOM.TTS160.Telescope
                         LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
                         LogMessage("SyncToTarget", $"Assumed Target: Ra: " + utilities.HoursToHMS(targRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(targDec, ":", ":", ""));
                         LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+
                     }
                     else
                     {
+
                         double presyncRA = RightAscension;
                         double presyncDec = Declination;
                         LogMessage("SyncToCoordinates", "Advanced Firmware detected.");
                         LogMessage("SyncToCoordinates", $"Align on Sync is: {MiscResources.AlignOnSyncEnabled}");
-                        LogMessage("SyncToCoordinates", $"Using old Sync method");
+                        LogMessage("SyncToCoordinates", $"Using old Sync method");               
+
                         var ret = Commander(":CM#", true, 2);
                         LogMessage("SyncToCoordinates", $"Sleeping for {SYNC_WAIT_TIME} ms for sync to take...");
                         Thread.Sleep(SYNC_WAIT_TIME);
@@ -4293,6 +5044,7 @@ namespace ASCOM.TTS160.Telescope
                         LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
                         LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":", ""));
                         LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+
                     }
                 }
                 else
@@ -4309,6 +5061,7 @@ namespace ASCOM.TTS160.Telescope
                     LogMessage("SyncToCoordinates", $"PreSync: Ra: " + utilities.HoursToHMS(presyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(presyncDec, ":", ":", ""));
                     LogMessage("SyncToCoordinates", $"Target: Ra: " + utilities.HoursToHMS(TRightAscension, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(TDeclination, ":", ":", ""));
                     LogMessage("SyncToCoordinates", $"PostSync: Ra: " + utilities.HoursToHMS(postsyncRA, ":", ":", "") + "; Dec: " + utilities.DegreesToDMS(postsyncDec, ":", ":", ""));
+
                 }
 
             }
@@ -4320,7 +5073,8 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Matches the scope's equatorial coordinates to the target equatorial coordinates.
+        /// Matches the scope's equatorial coordinates to the current <see cref="TargetRightAscension"/>
+        /// and <see cref="TargetDeclination"/>. Delegates to <see cref="SyncToCoordinates"/>.
         /// </summary>
         internal static void SyncToTarget()
         {
@@ -4334,6 +5088,37 @@ namespace ASCOM.TTS160.Telescope
 
                 if (DEV_FIRMWARE)
                 {
+
+                    //Check for mount Epoch
+                    double J2000RA, J2000Dec;
+                    double topoRA = TargetRightAscension;
+                    double topoDec = TargetDeclination;
+                    bool epoch = MountEpoch;
+                    if (!epoch)
+                    {
+                        LogMessage("SyncToTarget", "Mount is using J2000 coordinates, updating target values on mount");
+                        //Convert AltAz to RaDec Topocentric
+                        T.SiteLatitude = SiteLatitude;
+                        T.SiteLongitude = SiteLongitude;
+                        T.SiteElevation = SiteElevation;
+                        T.SiteTemperature = 20;
+                        T.Refraction = false;
+                        T.SetTopocentric(topoRA, topoDec);
+
+                        J2000RA = T.RAJ2000;
+                        J2000Dec = T.DecJ2000;
+
+                        LogMessage("SyncToTarget", "Ra: " + utilities.HoursToHMS(topoRA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(topoDec, ":", ":"));
+                        LogMessage("SyncToTarget", "J2000 Derived Ra: " + utilities.HoursToHMS(J2000RA, ":", ":") + "; Derived Dec: " + utilities.DegreesToDMS(J2000Dec, ":", ":"));
+
+                        TargetRightAscension = J2000RA;  //Send new coords to mount
+                        TargetDeclination = J2000Dec;
+
+                        MiscResources.Target.RightAscension = topoRA;  //Restore Topocentric values to driver variables (since that is what we work in)
+                        MiscResources.Target.Declination = topoDec;
+
+                    }
+
                     if (MiscResources.AlignOnSyncEnabled)
                     {
                         double presyncRA = RightAscension;
@@ -4416,8 +5201,47 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The declination (degrees, positive North) for the target of an equatorial slew or sync operation
+        /// Queries the mount for its current coordinate epoch setting.
         /// </summary>
+        /// <returns><c>true</c> for topocentric (JNow), <c>false</c> for J2000.</returns>
+        /// <remarks>
+        /// Uses the <c>:*E#</c> command. This determines whether coordinate conversions
+        /// (topocentric ↔ J2000) are needed when setting slew/sync targets.
+        /// </remarks>
+        internal static bool MountEpoch
+        {
+            get
+            {
+                try
+                {
+                    LogMessage("MountEpoch", "Retrieving Mount Epoch setting:");
+                    bool result = true;
+                    result = bool.Parse(Commander(":*E#", true, 1));
+                    if (result)
+                        LogMessage("MountEpoch", $"Retrieved {result}, indicating Topocentric Equatorial.");
+                    else
+                        LogMessage("MountEpoch", $"Retrieved {result}, indicating J2000.");
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    LogMessage("MountEpoch", $"Error retrieving mount's Epoch setting: {ex.Message}");
+                    throw ex;
+                }
+
+            }
+        }
+
+        /// <summary>
+        /// The declination (degrees, positive North) for the target of an equatorial slew or sync operation.
+        /// </summary>
+        /// <remarks>
+        /// <para>Units: degrees (-90 to +90). Simulated in the driver via <see cref="MiscResources"/>
+        /// since the mount does not provide a target query command.</para>
+        /// <para>Set: sends the target to the mount via LX200 <c>:Sd{DMS}#</c> command and updates
+        /// <see cref="MiscResources.Target"/>. Also sets <see cref="MiscResources.IsTargetSet"/>
+        /// when both RA and Dec targets have been set.</para>
+        /// </remarks>
         internal static double TargetDeclination
         {
 
@@ -4460,7 +5284,9 @@ namespace ASCOM.TTS160.Telescope
                     }
                     else
                     {
+                        LogMessage("TargetDeclination Set", $"Target Dec Raw:{value}");
                         var targDec = utilities.DegreesToDMS(value, "*", ":");
+                        LogMessage("TargetDeclination Set", $"Target Dec String: {targDec}");
                         bool result = false;
                         if (value >= 0)
                         {
@@ -4468,7 +5294,7 @@ namespace ASCOM.TTS160.Telescope
                         }
                         else
                         {
-                            result = bool.Parse(Commander($":Sd{targDec}#", true, 1));
+                            result = bool.Parse(Commander($":Sd{targDec}#", true, 1));  //negative numbers already have a preceeding (-) sign
                         }
 
                         if (!result) { throw new ASCOM.InvalidValueException("Invalid Target Declination:" + targDec); }
@@ -4496,8 +5322,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The right ascension (hours) for the target of an equatorial slew or sync operation
+        /// The right ascension (hours) for the target of an equatorial slew or sync operation.
         /// </summary>
+        /// <remarks>
+        /// <para>Units: hours (0 to 24). Simulated in the driver via <see cref="MiscResources"/>.</para>
+        /// <para>Set: sends the target to the mount via LX200 <c>:Sr{HMS}#</c> command.</para>
+        /// </remarks>
         internal static double TargetRightAscension
         {
             get
@@ -4567,6 +5397,11 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// The state of the telescope's sidereal tracking drive.
         /// </summary>
+        /// <remarks>
+        /// <para>Get: queries mount via <c>:GW#</c> and checks if the second character is 'T' (tracking).</para>
+        /// <para>Set: sends <c>:T1#</c> to enable or <c>:T0#</c> to disable tracking.
+        /// Cannot be changed while slewing.</para>
+        /// </remarks>
         internal static bool Tracking
         {
             get
@@ -4596,6 +5431,7 @@ namespace ASCOM.TTS160.Telescope
 
                     if (Slewing)
                     {
+                        //Rather than throwing an error, this should queue the command to execute once slewing is complete                        
                         LogMessage("Tracking set", "Cannot change tracking state while slewing.");
                         throw new InvalidOperationException("Cannot change tracking state while slewing.");
                     }
@@ -4618,6 +5454,11 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Restores tracking state after a slew or MoveAxis operation completes,
+        /// bypassing the <see cref="Tracking"/> setter's slewing check.
+        /// </summary>
+        /// <param name="TrackSetFollower"><c>true</c> to enable tracking, <c>false</c> to disable.</param>
         internal static void TrackSetFollower(bool TrackSetFollower)
         {
             try
@@ -4635,6 +5476,10 @@ namespace ASCOM.TTS160.Telescope
 
         }
 
+        /// <summary>
+        /// Forces a read of the <see cref="Slewing"/> property to update internal settle/stop state.
+        /// Called by properties that need fresh slewing state (e.g., <see cref="SiderealTime"/>).
+        /// </summary>
         internal static void SlewingInternalUpdate()
         {
             try
@@ -4657,8 +5502,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// The current tracking rate of the telescope's sidereal drive
+        /// The current tracking rate of the telescope's sidereal drive.
         /// </summary>
+        /// <remarks>
+        /// <para>Get: queries mount via <c>:*TRG#</c> — returns 0=sidereal, 1=lunar, 2=solar.</para>
+        /// <para>Set: sends LX200 commands <c>:TQ#</c> (sidereal), <c>:TL#</c> (lunar), or <c>:TS#</c> (solar).</para>
+        /// </remarks>
         internal static DriveRates TrackingRate
         {
             get
@@ -4667,8 +5516,27 @@ namespace ASCOM.TTS160.Telescope
                 {
                     CheckConnected("TrackingRate Get");
 
-                    LogMessage("TrackingRate Get", $"{MiscResources.TrackingRateCurrent}");
-                    return MiscResources.TrackingRateCurrent;
+                    string ret = Commander(":*TRG#", true, 2);
+                    int retint = int.Parse(ret.TrimEnd('#'));
+                    DriveRates curr = DriveRates.driveSidereal;
+
+                    switch( retint )
+                    {
+                        case 0:
+                            curr =  DriveRates.driveSidereal;
+                            break;
+                        case 1:
+                            curr =  DriveRates.driveLunar;
+                            break;
+                        case 2:
+                            curr =  DriveRates.driveSolar;
+                            break;
+                    }
+
+                    LogMessage("TrackingRate get - ", $"Received: {ret}, corresponding to {curr}, {curr.GetType()}.");
+
+                    return curr;
+
                 }
                 catch (Exception ex)
                 {
@@ -4703,7 +5571,6 @@ namespace ASCOM.TTS160.Telescope
                             throw new ASCOM.InvalidValueException("Invalid Rate: " + value.ToString());
 
                     }
-                    MiscResources.TrackingRateCurrent = value;
                     LogMessage("TrackingRate Set", $"Tracking Rate Set To: {value}");
                 }
                 catch (Exception ex)
@@ -4812,6 +5679,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Takes telescope out of the Parked state.
         /// </summary>
+        /// <exception cref="MethodNotImplementedException">
+        /// Always thrown; the TTS-160 does not support a dedicated unpark command.
+        /// See <see cref="CanUnpark"/>.
+        /// </exception>
         internal static void Unpark()
         {
             LogMessage("Unpark", "Not implemented");
@@ -4838,9 +5709,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we aren't connected to the hardware
+        /// Throws <see cref="NotConnectedException"/> if the driver is not connected to the hardware.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckConnected(string message)
         {
             if (!IsConnected)
@@ -4850,9 +5721,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we are slewing
+        /// Throws <see cref="InvalidOperationException"/> if the telescope is currently slewing.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckSlewing(string message)
         {
             if (Slewing)
@@ -4862,16 +5733,36 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we are parked
+        /// Throws <see cref="InvalidOperationException"/> if the telescope is performing a goto slew.
         /// </summary>
+        /// <param name="message">Caller name included in the exception message.</param>
+        private static void CheckGoto(string message)
+        {
+            
+            if (Slewing)
+            {
+                throw new ASCOM.InvalidOperationException("Unable to " + message + " while in a Goto");
+            }
+        }
+
+        /// <summary>
+        /// Throws <see cref="ParkedException"/> if the telescope is parked.
+        /// Queries the mount via <see cref="AtPark"/> on each call.
+        /// </summary>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckParked(string message)
         {
             if (AtPark) { throw new ASCOM.ParkedException("Unable to use " + message + " while parked"); }
         }
 
         /// <summary>
-        /// Read the device configuration from the ASCOM Profile store
+        /// Read the device configuration from the ASCOM Profile store (Windows Registry).
         /// </summary>
+        /// <returns>A <see cref="ProfileProperties"/> instance populated with all persisted settings.</returns>
+        /// <remarks>
+        /// Serialized via <see cref="LockObject"/> to prevent concurrent registry access.
+        /// Each setting has a default value used if the registry key does not exist.
+        /// </remarks>
         internal static ProfileProperties ReadProfile()
         {
             lock(LockObject)
@@ -4889,21 +5780,21 @@ namespace ASCOM.TTS160.Telescope
                     profileProperties.SlewSettleTime = Int16.Parse(driverProfile.GetValue(DriverProgId, SlewSettleTimeName, string.Empty, SlewSettleTimeDefault));
                     profileProperties.SiteLatitude = Double.Parse(driverProfile.GetValue(DriverProgId, SiteLatitudeName, string.Empty, SiteLatitudeDefault));
                     profileProperties.SiteLongitude = Double.Parse(driverProfile.GetValue(DriverProgId, SiteLongitudeName, string.Empty, SiteLongitudeDefault));
-                    profileProperties.CompatMode = Int32.Parse(driverProfile.GetValue(DriverProgId, CompatModeName, string.Empty, CompatModeDefault));
-                    profileProperties.CanSetGuideRatesOverride = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, CanSetGuideRatesOverrideName, string.Empty, CanSetGuideRatesOverrideDefault));
                     profileProperties.SyncTimeOnConnect = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, SyncTimeOnConnectName, string.Empty, SyncTimeOnConnectDefault));
                     profileProperties.GuideComp = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompName, string.Empty, GuideCompDefault));
                     profileProperties.GuideCompMaxDelta = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompMaxDeltaName, string.Empty, GuideCompMaxDeltaDefault));
                     profileProperties.GuideCompBuffer = Int32.Parse(driverProfile.GetValue(DriverProgId, GuideCompBufferName, string.Empty, GuideCompBufferDefault));
-                    profileProperties.TrackingRateOnConnect = Int32.Parse(driverProfile.GetValue(DriverProgId, TrackingRateOnConnectName, string.Empty, TrackingRateOnConnectDefault));
                     profileProperties.PulseGuideEquFrame = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, PulseGuideEquFrameName, string.Empty, PulseGuideEquFrameDefault));
                     profileProperties.DriverSiteOverride = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, DriverSiteOverrideName, string.Empty, DriverSiteOverrideDefault));
                     profileProperties.DriverSiteLatitude = Double.Parse(driverProfile.GetValue(DriverProgId, DriverSiteLatitudeName, string.Empty, DriverSiteLatitudeDefault));
                     profileProperties.DriverSiteLongitude = Double.Parse(driverProfile.GetValue(DriverProgId, DriverSiteLongitudeName, string.Empty, DriverSiteLongitudeDefault));
-                    profileProperties.HCGuideRate = Int32.Parse(driverProfile.GetValue(DriverProgId, HCGuideRateName, string.Empty, HCGuideRateDefault));
-                    profileProperties.PulseGuideDurationCompliant = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, PulseGuideDurationCompliantName, string.Empty, PulseGuideDurationCompliantDefault));
+                    profileProperties.PulseGuideDurationSynchronous = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, PulseGuideDurationSynchronousName, string.Empty, PulseGuideDurationSynchronousDefault));
                     profileProperties.AlignOnSyncEnabled = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, AlignOnSyncEnabledName, string.Empty, AlignOnSyncEnabledDefault));
                     profileProperties.AlignOnSyncPoints = Int32.Parse(driverProfile.GetValue(DriverProgId, AlignOnSyncPointsName, string.Empty, AlignOnSyncPointsDefault));
+                    profileProperties.SetParkLoc = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, SetParkLocName, string.Empty, SetParkLocDefault));
+                    profileProperties.ParkLoc = Convert.ToBoolean(driverProfile.GetValue(DriverProgId, ParkLocName, string.Empty, ParkLocDefault));
+                    profileProperties.ParkLocAlt = Double.Parse(driverProfile.GetValue(DriverProgId, ParkLocAltName, string.Empty, ParkLocAltDefault));
+                    profileProperties.ParkLocAz = Double.Parse(driverProfile.GetValue(DriverProgId, ParkLocAzName, string.Empty, ParkLocAzDefault));
                 }
                 return profileProperties;
             }
@@ -4911,8 +5802,13 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Write the device configuration to the  ASCOM  Profile store
+        /// Write the device configuration to the ASCOM Profile store (Windows Registry).
         /// </summary>
+        /// <param name="profileProperties">The settings to persist.</param>
+        /// <remarks>
+        /// Serialized via <see cref="LockObject"/>. Called on connect, disconnect,
+        /// and when settings are changed via the setup dialog.
+        /// </remarks>
         internal static void WriteProfile(ProfileProperties profileProperties)
         {
             lock(LockObject)
@@ -4927,21 +5823,21 @@ namespace ASCOM.TTS160.Telescope
                     driverProfile.WriteValue(DriverProgId, SlewSettleTimeName, profileProperties.SlewSettleTime.ToString());
                     driverProfile.WriteValue(DriverProgId, SiteLatitudeName, profileProperties.SiteLatitude.ToString());
                     driverProfile.WriteValue(DriverProgId, SiteLongitudeName, profileProperties.SiteLongitude.ToString());
-                    driverProfile.WriteValue(DriverProgId, CompatModeName, profileProperties.CompatMode.ToString());
-                    driverProfile.WriteValue(DriverProgId, CanSetGuideRatesOverrideName, profileProperties.CanSetGuideRatesOverride.ToString());
                     driverProfile.WriteValue(DriverProgId, SyncTimeOnConnectName, profileProperties.SyncTimeOnConnect.ToString());
                     driverProfile.WriteValue(DriverProgId, GuideCompName, profileProperties.GuideComp.ToString());
                     driverProfile.WriteValue(DriverProgId, GuideCompMaxDeltaName, profileProperties.GuideCompMaxDelta.ToString());
                     driverProfile.WriteValue(DriverProgId, GuideCompBufferName, profileProperties.GuideCompBuffer.ToString());
-                    driverProfile.WriteValue(DriverProgId, TrackingRateOnConnectName, profileProperties.TrackingRateOnConnect.ToString());
                     driverProfile.WriteValue(DriverProgId, PulseGuideEquFrameName, profileProperties.PulseGuideEquFrame.ToString());
                     driverProfile.WriteValue(DriverProgId, DriverSiteOverrideName, profileProperties.DriverSiteOverride.ToString());
                     driverProfile.WriteValue(DriverProgId, DriverSiteLatitudeName, profileProperties.DriverSiteLatitude.ToString());
                     driverProfile.WriteValue(DriverProgId, DriverSiteLongitudeName, profileProperties.DriverSiteLongitude.ToString());
-                    driverProfile.WriteValue(DriverProgId, HCGuideRateName, profileProperties.HCGuideRate.ToString());
-                    driverProfile.WriteValue(DriverProgId, PulseGuideDurationCompliantName, profileProperties.PulseGuideDurationCompliant.ToString());
+                    driverProfile.WriteValue(DriverProgId, PulseGuideDurationSynchronousName, profileProperties.PulseGuideDurationSynchronous.ToString());
                     driverProfile.WriteValue(DriverProgId, AlignOnSyncEnabledName, profileProperties.AlignOnSyncEnabled.ToString());
                     driverProfile.WriteValue(DriverProgId, AlignOnSyncPointsName, profileProperties.AlignOnSyncPoints.ToString());
+                    driverProfile.WriteValue(DriverProgId, SetParkLocName, profileProperties.SetParkLoc.ToString());
+                    driverProfile.WriteValue(DriverProgId, ParkLocName, profileProperties.ParkLoc.ToString());
+                    driverProfile.WriteValue(DriverProgId, ParkLocAltName, profileProperties.ParkLocAlt.ToString());
+                    driverProfile.WriteValue(DriverProgId, ParkLocAzName, profileProperties.ParkLocAz.ToString());
                 }
             }
 

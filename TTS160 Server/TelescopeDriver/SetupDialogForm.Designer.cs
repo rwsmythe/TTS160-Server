@@ -43,9 +43,6 @@
             this.label6 = new System.Windows.Forms.Label();
             this.SiteLatlbl = new System.Windows.Forms.Label();
             this.SiteLonglbl = new System.Windows.Forms.Label();
-            this.compatBox = new System.Windows.Forms.GroupBox();
-            this.mpmBtn = new System.Windows.Forms.RadioButton();
-            this.noneBtn = new System.Windows.Forms.RadioButton();
             this.TimeSyncChk = new System.Windows.Forms.CheckBox();
             this.groupGuideComp = new System.Windows.Forms.GroupBox();
             this.label7 = new System.Windows.Forms.Label();
@@ -63,32 +60,28 @@
             this.checkBoxPulseGuideDuration = new System.Windows.Forms.CheckBox();
             this.tabControl1 = new System.Windows.Forms.TabControl();
             this.tabPage1 = new System.Windows.Forms.TabPage();
+            this.groupBox4 = new System.Windows.Forms.GroupBox();
+            this.checkBoxParkUpdate = new System.Windows.Forms.CheckBox();
+            this.label9 = new System.Windows.Forms.Label();
+            this.label8 = new System.Windows.Forms.Label();
+            this.textBoxParkLocAz = new System.Windows.Forms.TextBox();
+            this.textBoxParkLocAlt = new System.Windows.Forms.TextBox();
+            this.radioButtonParkCustom = new System.Windows.Forms.RadioButton();
+            this.radioButtonParkinPlace = new System.Windows.Forms.RadioButton();
+            this.labelMountDetect = new System.Windows.Forms.Label();
+            this.buttonFindMount = new System.Windows.Forms.Button();
             this.groupBox3 = new System.Windows.Forms.GroupBox();
             this.radioButtonAlignonSync3 = new System.Windows.Forms.RadioButton();
             this.radioButtonAlignonSync2 = new System.Windows.Forms.RadioButton();
             this.radioButtonAlignonSync1 = new System.Windows.Forms.RadioButton();
             this.checkBoxAlignonSync = new System.Windows.Forms.CheckBox();
-            this.groupBox2 = new System.Windows.Forms.GroupBox();
-            this.radioButtonGR4 = new System.Windows.Forms.RadioButton();
-            this.radioButtonGR3 = new System.Windows.Forms.RadioButton();
-            this.radioButtonGR2 = new System.Windows.Forms.RadioButton();
-            this.radioButtonGR1 = new System.Windows.Forms.RadioButton();
-            this.radioButtonGR0 = new System.Windows.Forms.RadioButton();
-            this.groupBox1 = new System.Windows.Forms.GroupBox();
-            this.radioSolar = new System.Windows.Forms.RadioButton();
-            this.radioLunar = new System.Windows.Forms.RadioButton();
-            this.radioSidereal = new System.Windows.Forms.RadioButton();
             this.tabPage2 = new System.Windows.Forms.TabPage();
-            this.buttonFindMount = new System.Windows.Forms.Button();
-            this.labelMountDetect = new System.Windows.Forms.Label();
             ((System.ComponentModel.ISupportInitialize)(this.picASCOM)).BeginInit();
-            this.compatBox.SuspendLayout();
             this.groupGuideComp.SuspendLayout();
             this.tabControl1.SuspendLayout();
             this.tabPage1.SuspendLayout();
+            this.groupBox4.SuspendLayout();
             this.groupBox3.SuspendLayout();
-            this.groupBox2.SuspendLayout();
-            this.groupBox1.SuspendLayout();
             this.tabPage2.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -240,43 +233,6 @@
             this.SiteLonglbl.Size = new System.Drawing.Size(114, 15);
             this.SiteLonglbl.TabIndex = 15;
             // 
-            // compatBox
-            // 
-            this.compatBox.Controls.Add(this.mpmBtn);
-            this.compatBox.Controls.Add(this.noneBtn);
-            this.compatBox.Location = new System.Drawing.Point(18, 17);
-            this.compatBox.Margin = new System.Windows.Forms.Padding(1);
-            this.compatBox.Name = "compatBox";
-            this.compatBox.Padding = new System.Windows.Forms.Padding(1);
-            this.compatBox.Size = new System.Drawing.Size(157, 84);
-            this.compatBox.TabIndex = 16;
-            this.compatBox.TabStop = false;
-            this.compatBox.Text = "App Compatibility Mode";
-            // 
-            // mpmBtn
-            // 
-            this.mpmBtn.AutoSize = true;
-            this.mpmBtn.Location = new System.Drawing.Point(14, 52);
-            this.mpmBtn.Margin = new System.Windows.Forms.Padding(1);
-            this.mpmBtn.Name = "mpmBtn";
-            this.mpmBtn.Size = new System.Drawing.Size(136, 17);
-            this.mpmBtn.TabIndex = 1;
-            this.mpmBtn.Text = "Moon Panorama Maker";
-            this.mpmBtn.UseVisualStyleBackColor = true;
-            // 
-            // noneBtn
-            // 
-            this.noneBtn.AutoSize = true;
-            this.noneBtn.Checked = true;
-            this.noneBtn.Location = new System.Drawing.Point(14, 28);
-            this.noneBtn.Margin = new System.Windows.Forms.Padding(1);
-            this.noneBtn.Name = "noneBtn";
-            this.noneBtn.Size = new System.Drawing.Size(51, 17);
-            this.noneBtn.TabIndex = 0;
-            this.noneBtn.TabStop = true;
-            this.noneBtn.Text = "None";
-            this.noneBtn.UseVisualStyleBackColor = true;
-            // 
             // TimeSyncChk
             // 
             this.TimeSyncChk.AutoSize = true;
@@ -378,7 +334,7 @@
             // label10
             // 
             this.label10.AutoSize = true;
-            this.label10.Location = new System.Drawing.Point(12, 180);
+            this.label10.Location = new System.Drawing.Point(21, 69);
             this.label10.Name = "label10";
             this.label10.Size = new System.Drawing.Size(106, 13);
             this.label10.TabIndex = 21;
@@ -387,7 +343,7 @@
             // label11
             // 
             this.label11.AutoSize = true;
-            this.label11.Location = new System.Drawing.Point(12, 158);
+            this.label11.Location = new System.Drawing.Point(21, 47);
             this.label11.Name = "label11";
             this.label11.Size = new System.Drawing.Size(97, 13);
             this.label11.TabIndex = 20;
@@ -395,14 +351,14 @@
             // 
             // textBoxDriverSiteLat
             // 
-            this.textBoxDriverSiteLat.Location = new System.Drawing.Point(118, 151);
+            this.textBoxDriverSiteLat.Location = new System.Drawing.Point(127, 40);
             this.textBoxDriverSiteLat.Name = "textBoxDriverSiteLat";
             this.textBoxDriverSiteLat.Size = new System.Drawing.Size(112, 20);
             this.textBoxDriverSiteLat.TabIndex = 22;
             // 
             // textBoxDriverSiteLong
             // 
-            this.textBoxDriverSiteLong.Location = new System.Drawing.Point(118, 175);
+            this.textBoxDriverSiteLong.Location = new System.Drawing.Point(127, 64);
             this.textBoxDriverSiteLong.Name = "textBoxDriverSiteLong";
             this.textBoxDriverSiteLong.Size = new System.Drawing.Size(112, 20);
             this.textBoxDriverSiteLong.TabIndex = 23;
@@ -410,7 +366,7 @@
             // checkBoxDriverSiteOverride
             // 
             this.checkBoxDriverSiteOverride.AutoSize = true;
-            this.checkBoxDriverSiteOverride.Location = new System.Drawing.Point(68, 128);
+            this.checkBoxDriverSiteOverride.Location = new System.Drawing.Point(77, 17);
             this.checkBoxDriverSiteOverride.Name = "checkBoxDriverSiteOverride";
             this.checkBoxDriverSiteOverride.Size = new System.Drawing.Size(111, 17);
             this.checkBoxDriverSiteOverride.TabIndex = 24;
@@ -433,9 +389,9 @@
             this.checkBoxPulseGuideDuration.AutoSize = true;
             this.checkBoxPulseGuideDuration.Location = new System.Drawing.Point(314, 17);
             this.checkBoxPulseGuideDuration.Name = "checkBoxPulseGuideDuration";
-            this.checkBoxPulseGuideDuration.Size = new System.Drawing.Size(218, 17);
+            this.checkBoxPulseGuideDuration.Size = new System.Drawing.Size(193, 17);
             this.checkBoxPulseGuideDuration.TabIndex = 27;
-            this.checkBoxPulseGuideDuration.Text = "ASCOM Compliant PulseGuide Durations";
+            this.checkBoxPulseGuideDuration.Text = "Synchronous PulseGuide Durations";
             this.checkBoxPulseGuideDuration.UseVisualStyleBackColor = true;
             // 
             // tabControl1
@@ -445,17 +401,16 @@
             this.tabControl1.Location = new System.Drawing.Point(12, 17);
             this.tabControl1.Name = "tabControl1";
             this.tabControl1.SelectedIndex = 0;
-            this.tabControl1.Size = new System.Drawing.Size(643, 393);
+            this.tabControl1.Size = new System.Drawing.Size(678, 393);
             this.tabControl1.TabIndex = 28;
             this.tabControl1.Selecting += new System.Windows.Forms.TabControlCancelEventHandler(this.tabControl1_Selecting);
             // 
             // tabPage1
             // 
+            this.tabPage1.Controls.Add(this.groupBox4);
             this.tabPage1.Controls.Add(this.labelMountDetect);
             this.tabPage1.Controls.Add(this.buttonFindMount);
             this.tabPage1.Controls.Add(this.groupBox3);
-            this.tabPage1.Controls.Add(this.groupBox2);
-            this.tabPage1.Controls.Add(this.groupBox1);
             this.tabPage1.Controls.Add(this.label2);
             this.tabPage1.Controls.Add(this.chkTrace);
             this.tabPage1.Controls.Add(this.comboBoxComPort);
@@ -471,201 +426,103 @@
             this.tabPage1.Location = new System.Drawing.Point(4, 22);
             this.tabPage1.Name = "tabPage1";
             this.tabPage1.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPage1.Size = new System.Drawing.Size(635, 367);
+            this.tabPage1.Size = new System.Drawing.Size(670, 367);
             this.tabPage1.TabIndex = 0;
             this.tabPage1.Text = "Basic";
             this.tabPage1.UseVisualStyleBackColor = true;
             // 
-            // groupBox3
+            // groupBox4
             // 
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync3);
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync2);
-            this.groupBox3.Controls.Add(this.radioButtonAlignonSync1);
-            this.groupBox3.Controls.Add(this.checkBoxAlignonSync);
-            this.groupBox3.Location = new System.Drawing.Point(412, 160);
-            this.groupBox3.Name = "groupBox3";
-            this.groupBox3.Size = new System.Drawing.Size(190, 146);
-            this.groupBox3.TabIndex = 28;
-            this.groupBox3.TabStop = false;
-            this.groupBox3.Text = "Align on Sync Mode";
+            this.groupBox4.Controls.Add(this.checkBoxParkUpdate);
+            this.groupBox4.Controls.Add(this.label9);
+            this.groupBox4.Controls.Add(this.label8);
+            this.groupBox4.Controls.Add(this.textBoxParkLocAz);
+            this.groupBox4.Controls.Add(this.textBoxParkLocAlt);
+            this.groupBox4.Controls.Add(this.radioButtonParkCustom);
+            this.groupBox4.Controls.Add(this.radioButtonParkinPlace);
+            this.groupBox4.Location = new System.Drawing.Point(16, 159);
+            this.groupBox4.Name = "groupBox4";
+            this.groupBox4.Size = new System.Drawing.Size(240, 151);
+            this.groupBox4.TabIndex = 31;
+            this.groupBox4.TabStop = false;
+            this.groupBox4.Text = "Park Location";
+            this.groupBox4.Enter += new System.EventHandler(this.groupBox4_Enter);
             // 
-            // radioButtonAlignonSync3
+            // checkBoxParkUpdate
             // 
-            this.radioButtonAlignonSync3.AutoSize = true;
-            this.radioButtonAlignonSync3.Location = new System.Drawing.Point(16, 113);
-            this.radioButtonAlignonSync3.Name = "radioButtonAlignonSync3";
-            this.radioButtonAlignonSync3.Size = new System.Drawing.Size(112, 17);
-            this.radioButtonAlignonSync3.TabIndex = 3;
-            this.radioButtonAlignonSync3.Text = "3 Alignment Points";
-            this.radioButtonAlignonSync3.UseVisualStyleBackColor = true;
+            this.checkBoxParkUpdate.AutoSize = true;
+            this.checkBoxParkUpdate.Location = new System.Drawing.Point(140, 19);
+            this.checkBoxParkUpdate.Name = "checkBoxParkUpdate";
+            this.checkBoxParkUpdate.Size = new System.Drawing.Size(94, 17);
+            this.checkBoxParkUpdate.TabIndex = 6;
+            this.checkBoxParkUpdate.Text = "Update Mount";
+            this.checkBoxParkUpdate.UseVisualStyleBackColor = true;
             // 
-            // radioButtonAlignonSync2
+            // label9
             // 
-            this.radioButtonAlignonSync2.AutoSize = true;
-            this.radioButtonAlignonSync2.Checked = true;
-            this.radioButtonAlignonSync2.Location = new System.Drawing.Point(16, 93);
-            this.radioButtonAlignonSync2.Name = "radioButtonAlignonSync2";
-            this.radioButtonAlignonSync2.Size = new System.Drawing.Size(112, 17);
-            this.radioButtonAlignonSync2.TabIndex = 2;
-            this.radioButtonAlignonSync2.TabStop = true;
-            this.radioButtonAlignonSync2.Text = "2 Alignment Points";
-            this.radioButtonAlignonSync2.UseVisualStyleBackColor = true;
+            this.label9.AutoSize = true;
+            this.label9.Location = new System.Drawing.Point(11, 120);
+            this.label9.Name = "label9";
+            this.label9.Size = new System.Drawing.Size(44, 13);
+            this.label9.TabIndex = 5;
+            this.label9.Text = "Azimuth";
             // 
-            // radioButtonAlignonSync1
+            // label8
             // 
-            this.radioButtonAlignonSync1.AutoSize = true;
-            this.radioButtonAlignonSync1.Location = new System.Drawing.Point(16, 75);
-            this.radioButtonAlignonSync1.Name = "radioButtonAlignonSync1";
-            this.radioButtonAlignonSync1.Size = new System.Drawing.Size(107, 17);
-            this.radioButtonAlignonSync1.TabIndex = 1;
-            this.radioButtonAlignonSync1.Text = "1 Alignment Point";
-            this.radioButtonAlignonSync1.UseVisualStyleBackColor = true;
-            this.radioButtonAlignonSync1.CheckedChanged += new System.EventHandler(this.radioButtonAlignonSync1_CheckedChanged);
+            this.label8.AutoSize = true;
+            this.label8.Location = new System.Drawing.Point(11, 96);
+            this.label8.Name = "label8";
+            this.label8.Size = new System.Drawing.Size(42, 13);
+            this.label8.TabIndex = 4;
+            this.label8.Text = "Altitude";
             // 
-            // checkBoxAlignonSync
+            // textBoxParkLocAz
             // 
-            this.checkBoxAlignonSync.AutoSize = true;
-            this.checkBoxAlignonSync.Location = new System.Drawing.Point(16, 42);
-            this.checkBoxAlignonSync.Name = "checkBoxAlignonSync";
-            this.checkBoxAlignonSync.Size = new System.Drawing.Size(59, 17);
-            this.checkBoxAlignonSync.TabIndex = 0;
-            this.checkBoxAlignonSync.Text = "Enable";
-            this.checkBoxAlignonSync.UseVisualStyleBackColor = true;
-            this.checkBoxAlignonSync.CheckedChanged += new System.EventHandler(this.checkBoxAlignonSync_CheckedChanged);
+            this.textBoxParkLocAz.Location = new System.Drawing.Point(56, 117);
+            this.textBoxParkLocAz.Name = "textBoxParkLocAz";
+            this.textBoxParkLocAz.Size = new System.Drawing.Size(49, 20);
+            this.textBoxParkLocAz.TabIndex = 3;
+            this.textBoxParkLocAz.Text = "180";
             // 
-            // groupBox2
+            // textBoxParkLocAlt
             // 
-            this.groupBox2.Controls.Add(this.radioButtonGR4);
-            this.groupBox2.Controls.Add(this.radioButtonGR3);
-            this.groupBox2.Controls.Add(this.radioButtonGR2);
-            this.groupBox2.Controls.Add(this.radioButtonGR1);
-            this.groupBox2.Controls.Add(this.radioButtonGR0);
-            this.groupBox2.Location = new System.Drawing.Point(163, 155);
-            this.groupBox2.Name = "groupBox2";
-            this.groupBox2.Size = new System.Drawing.Size(212, 152);
-            this.groupBox2.TabIndex = 27;
-            this.groupBox2.TabStop = false;
-            this.groupBox2.Text = "Handpad Guide Rate";
+            this.textBoxParkLocAlt.Location = new System.Drawing.Point(56, 92);
+            this.textBoxParkLocAlt.Name = "textBoxParkLocAlt";
+            this.textBoxParkLocAlt.Size = new System.Drawing.Size(49, 20);
+            this.textBoxParkLocAlt.TabIndex = 2;
+            this.textBoxParkLocAlt.Text = "0";
             // 
-            // radioButtonGR4
+            // radioButtonParkCustom
             // 
-            this.radioButtonGR4.AutoSize = true;
-            this.radioButtonGR4.Location = new System.Drawing.Point(20, 121);
-            this.radioButtonGR4.Name = "radioButtonGR4";
-            this.radioButtonGR4.Size = new System.Drawing.Size(97, 17);
-            this.radioButtonGR4.TabIndex = 4;
-            this.radioButtonGR4.Text = "20 arc-sec/sec";
-            this.radioButtonGR4.UseVisualStyleBackColor = true;
+            this.radioButtonParkCustom.AutoSize = true;
+            this.radioButtonParkCustom.Location = new System.Drawing.Point(18, 61);
+            this.radioButtonParkCustom.Name = "radioButtonParkCustom";
+            this.radioButtonParkCustom.Size = new System.Drawing.Size(129, 17);
+            this.radioButtonParkCustom.TabIndex = 1;
+            this.radioButtonParkCustom.TabStop = true;
+            this.radioButtonParkCustom.Text = "Custom Park Location";
+            this.radioButtonParkCustom.UseVisualStyleBackColor = true;
             // 
-            // radioButtonGR3
+            // radioButtonParkinPlace
             // 
-            this.radioButtonGR3.AutoSize = true;
-            this.radioButtonGR3.Location = new System.Drawing.Point(20, 98);
-            this.radioButtonGR3.Name = "radioButtonGR3";
-            this.radioButtonGR3.Size = new System.Drawing.Size(97, 17);
-            this.radioButtonGR3.TabIndex = 3;
-            this.radioButtonGR3.Text = "10 arc-sec/sec";
-            this.radioButtonGR3.UseVisualStyleBackColor = true;
+            this.radioButtonParkinPlace.AutoSize = true;
+            this.radioButtonParkinPlace.Location = new System.Drawing.Point(18, 29);
+            this.radioButtonParkinPlace.Name = "radioButtonParkinPlace";
+            this.radioButtonParkinPlace.Size = new System.Drawing.Size(88, 17);
+            this.radioButtonParkinPlace.TabIndex = 0;
+            this.radioButtonParkinPlace.TabStop = true;
+            this.radioButtonParkinPlace.Text = "Park in Place";
+            this.radioButtonParkinPlace.UseVisualStyleBackColor = true;
             // 
-            // radioButtonGR2
+            // labelMountDetect
             // 
-            this.radioButtonGR2.AutoSize = true;
-            this.radioButtonGR2.Checked = true;
-            this.radioButtonGR2.Location = new System.Drawing.Point(20, 75);
-            this.radioButtonGR2.Name = "radioButtonGR2";
-            this.radioButtonGR2.Size = new System.Drawing.Size(91, 17);
-            this.radioButtonGR2.TabIndex = 2;
-            this.radioButtonGR2.TabStop = true;
-            this.radioButtonGR2.Text = "5 arc-sec/sec";
-            this.radioButtonGR2.UseVisualStyleBackColor = true;
-            // 
-            // radioButtonGR1
-            // 
-            this.radioButtonGR1.AutoSize = true;
-            this.radioButtonGR1.Location = new System.Drawing.Point(20, 52);
-            this.radioButtonGR1.Name = "radioButtonGR1";
-            this.radioButtonGR1.Size = new System.Drawing.Size(91, 17);
-            this.radioButtonGR1.TabIndex = 1;
-            this.radioButtonGR1.Text = "3 arc-sec/sec";
-            this.radioButtonGR1.UseVisualStyleBackColor = true;
-            // 
-            // radioButtonGR0
-            // 
-            this.radioButtonGR0.AutoSize = true;
-            this.radioButtonGR0.Location = new System.Drawing.Point(20, 29);
-            this.radioButtonGR0.Name = "radioButtonGR0";
-            this.radioButtonGR0.Size = new System.Drawing.Size(91, 17);
-            this.radioButtonGR0.TabIndex = 0;
-            this.radioButtonGR0.Text = "1 arc-sec/sec";
-            this.radioButtonGR0.UseVisualStyleBackColor = true;
-            // 
-            // groupBox1
-            // 
-            this.groupBox1.Controls.Add(this.radioSolar);
-            this.groupBox1.Controls.Add(this.radioLunar);
-            this.groupBox1.Controls.Add(this.radioSidereal);
-            this.groupBox1.Location = new System.Drawing.Point(28, 199);
-            this.groupBox1.Margin = new System.Windows.Forms.Padding(1);
-            this.groupBox1.Name = "groupBox1";
-            this.groupBox1.Padding = new System.Windows.Forms.Padding(1);
-            this.groupBox1.Size = new System.Drawing.Size(126, 108);
-            this.groupBox1.TabIndex = 20;
-            this.groupBox1.TabStop = false;
-            this.groupBox1.Text = "Handpad Tracking Rate";
-            // 
-            // radioSolar
-            // 
-            this.radioSolar.AutoSize = true;
-            this.radioSolar.Location = new System.Drawing.Point(14, 74);
-            this.radioSolar.Margin = new System.Windows.Forms.Padding(1);
-            this.radioSolar.Name = "radioSolar";
-            this.radioSolar.Size = new System.Drawing.Size(49, 17);
-            this.radioSolar.TabIndex = 2;
-            this.radioSolar.Text = "Solar";
-            this.radioSolar.UseVisualStyleBackColor = true;
-            // 
-            // radioLunar
-            // 
-            this.radioLunar.AutoSize = true;
-            this.radioLunar.Location = new System.Drawing.Point(14, 52);
-            this.radioLunar.Margin = new System.Windows.Forms.Padding(1);
-            this.radioLunar.Name = "radioLunar";
-            this.radioLunar.Size = new System.Drawing.Size(52, 17);
-            this.radioLunar.TabIndex = 1;
-            this.radioLunar.Text = "Lunar";
-            this.radioLunar.UseVisualStyleBackColor = true;
-            // 
-            // radioSidereal
-            // 
-            this.radioSidereal.AutoSize = true;
-            this.radioSidereal.Checked = true;
-            this.radioSidereal.Location = new System.Drawing.Point(14, 28);
-            this.radioSidereal.Margin = new System.Windows.Forms.Padding(1);
-            this.radioSidereal.Name = "radioSidereal";
-            this.radioSidereal.Size = new System.Drawing.Size(63, 17);
-            this.radioSidereal.TabIndex = 0;
-            this.radioSidereal.TabStop = true;
-            this.radioSidereal.Text = "Sidereal";
-            this.radioSidereal.UseVisualStyleBackColor = true;
-            // 
-            // tabPage2
-            // 
-            this.tabPage2.Controls.Add(this.label11);
-            this.tabPage2.Controls.Add(this.checkBoxPulseGuideDuration);
-            this.tabPage2.Controls.Add(this.compatBox);
-            this.tabPage2.Controls.Add(this.checkBoxPulseGuideTopoEqu);
-            this.tabPage2.Controls.Add(this.label10);
-            this.tabPage2.Controls.Add(this.groupGuideComp);
-            this.tabPage2.Controls.Add(this.checkBoxDriverSiteOverride);
-            this.tabPage2.Controls.Add(this.textBoxDriverSiteLat);
-            this.tabPage2.Controls.Add(this.textBoxDriverSiteLong);
-            this.tabPage2.Location = new System.Drawing.Point(4, 22);
-            this.tabPage2.Name = "tabPage2";
-            this.tabPage2.Padding = new System.Windows.Forms.Padding(3);
-            this.tabPage2.Size = new System.Drawing.Size(635, 367);
-            this.tabPage2.TabIndex = 1;
-            this.tabPage2.Text = "Developer";
-            this.tabPage2.UseVisualStyleBackColor = true;
+            this.labelMountDetect.AutoSize = true;
+            this.labelMountDetect.BackColor = System.Drawing.Color.White;
+            this.labelMountDetect.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
+            this.labelMountDetect.Location = new System.Drawing.Point(97, 51);
+            this.labelMountDetect.Name = "labelMountDetect";
+            this.labelMountDetect.Size = new System.Drawing.Size(2, 15);
+            this.labelMountDetect.TabIndex = 30;
             // 
             // buttonFindMount
             // 
@@ -677,15 +534,80 @@
             this.buttonFindMount.UseVisualStyleBackColor = true;
             this.buttonFindMount.Click += new System.EventHandler(this.buttonFindMount_Click);
             // 
-            // labelMountDetect
+            // groupBox3
             // 
-            this.labelMountDetect.AutoSize = true;
-            this.labelMountDetect.BackColor = System.Drawing.Color.White;
-            this.labelMountDetect.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
-            this.labelMountDetect.Location = new System.Drawing.Point(97, 51);
-            this.labelMountDetect.Name = "labelMountDetect";
-            this.labelMountDetect.Size = new System.Drawing.Size(2, 15);
-            this.labelMountDetect.TabIndex = 30;
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync3);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync2);
+            this.groupBox3.Controls.Add(this.radioButtonAlignonSync1);
+            this.groupBox3.Controls.Add(this.checkBoxAlignonSync);
+            this.groupBox3.Location = new System.Drawing.Point(335, 178);
+            this.groupBox3.Name = "groupBox3";
+            this.groupBox3.Size = new System.Drawing.Size(190, 126);
+            this.groupBox3.TabIndex = 28;
+            this.groupBox3.TabStop = false;
+            this.groupBox3.Text = "Align on Sync Mode";
+            // 
+            // radioButtonAlignonSync3
+            // 
+            this.radioButtonAlignonSync3.AutoSize = true;
+            this.radioButtonAlignonSync3.Location = new System.Drawing.Point(16, 98);
+            this.radioButtonAlignonSync3.Name = "radioButtonAlignonSync3";
+            this.radioButtonAlignonSync3.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync3.TabIndex = 3;
+            this.radioButtonAlignonSync3.Text = "3 Alignment Points";
+            this.radioButtonAlignonSync3.UseVisualStyleBackColor = true;
+            // 
+            // radioButtonAlignonSync2
+            // 
+            this.radioButtonAlignonSync2.AutoSize = true;
+            this.radioButtonAlignonSync2.Checked = true;
+            this.radioButtonAlignonSync2.Location = new System.Drawing.Point(16, 75);
+            this.radioButtonAlignonSync2.Name = "radioButtonAlignonSync2";
+            this.radioButtonAlignonSync2.Size = new System.Drawing.Size(112, 17);
+            this.radioButtonAlignonSync2.TabIndex = 2;
+            this.radioButtonAlignonSync2.TabStop = true;
+            this.radioButtonAlignonSync2.Text = "2 Alignment Points";
+            this.radioButtonAlignonSync2.UseVisualStyleBackColor = true;
+            // 
+            // radioButtonAlignonSync1
+            // 
+            this.radioButtonAlignonSync1.AutoSize = true;
+            this.radioButtonAlignonSync1.Location = new System.Drawing.Point(16, 52);
+            this.radioButtonAlignonSync1.Name = "radioButtonAlignonSync1";
+            this.radioButtonAlignonSync1.Size = new System.Drawing.Size(107, 17);
+            this.radioButtonAlignonSync1.TabIndex = 1;
+            this.radioButtonAlignonSync1.Text = "1 Alignment Point";
+            this.radioButtonAlignonSync1.UseVisualStyleBackColor = true;
+            this.radioButtonAlignonSync1.CheckedChanged += new System.EventHandler(this.radioButtonAlignonSync1_CheckedChanged);
+            // 
+            // checkBoxAlignonSync
+            // 
+            this.checkBoxAlignonSync.AutoSize = true;
+            this.checkBoxAlignonSync.Location = new System.Drawing.Point(16, 19);
+            this.checkBoxAlignonSync.Name = "checkBoxAlignonSync";
+            this.checkBoxAlignonSync.Size = new System.Drawing.Size(59, 17);
+            this.checkBoxAlignonSync.TabIndex = 0;
+            this.checkBoxAlignonSync.Text = "Enable";
+            this.checkBoxAlignonSync.UseVisualStyleBackColor = true;
+            this.checkBoxAlignonSync.CheckedChanged += new System.EventHandler(this.checkBoxAlignonSync_CheckedChanged);
+            // 
+            // tabPage2
+            // 
+            this.tabPage2.Controls.Add(this.label11);
+            this.tabPage2.Controls.Add(this.checkBoxPulseGuideDuration);
+            this.tabPage2.Controls.Add(this.checkBoxPulseGuideTopoEqu);
+            this.tabPage2.Controls.Add(this.label10);
+            this.tabPage2.Controls.Add(this.groupGuideComp);
+            this.tabPage2.Controls.Add(this.checkBoxDriverSiteOverride);
+            this.tabPage2.Controls.Add(this.textBoxDriverSiteLat);
+            this.tabPage2.Controls.Add(this.textBoxDriverSiteLong);
+            this.tabPage2.Location = new System.Drawing.Point(4, 22);
+            this.tabPage2.Name = "tabPage2";
+            this.tabPage2.Padding = new System.Windows.Forms.Padding(3);
+            this.tabPage2.Size = new System.Drawing.Size(670, 367);
+            this.tabPage2.TabIndex = 1;
+            this.tabPage2.Text = "Developer";
+            this.tabPage2.UseVisualStyleBackColor = true;
             // 
             // SetupDialogForm
             // 
@@ -705,19 +627,15 @@
             this.Text = "TTS160 Setup";
             this.Load += new System.EventHandler(this.SetupDialogForm_Load);
             ((System.ComponentModel.ISupportInitialize)(this.picASCOM)).EndInit();
-            this.compatBox.ResumeLayout(false);
-            this.compatBox.PerformLayout();
             this.groupGuideComp.ResumeLayout(false);
             this.groupGuideComp.PerformLayout();
             this.tabControl1.ResumeLayout(false);
             this.tabPage1.ResumeLayout(false);
             this.tabPage1.PerformLayout();
+            this.groupBox4.ResumeLayout(false);
+            this.groupBox4.PerformLayout();
             this.groupBox3.ResumeLayout(false);
             this.groupBox3.PerformLayout();
-            this.groupBox2.ResumeLayout(false);
-            this.groupBox2.PerformLayout();
-            this.groupBox1.ResumeLayout(false);
-            this.groupBox1.PerformLayout();
             this.tabPage2.ResumeLayout(false);
             this.tabPage2.PerformLayout();
             this.ResumeLayout(false);
@@ -741,9 +659,6 @@
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.Label SiteLatlbl;
         private System.Windows.Forms.Label SiteLonglbl;
-        private System.Windows.Forms.GroupBox compatBox;
-        private System.Windows.Forms.RadioButton mpmBtn;
-        private System.Windows.Forms.RadioButton noneBtn;
         private System.Windows.Forms.CheckBox TimeSyncChk;
         private System.Windows.Forms.GroupBox groupGuideComp;
         private System.Windows.Forms.RadioButton radioButtonGuidingAlt;
@@ -762,16 +677,6 @@
         private System.Windows.Forms.TabControl tabControl1;
         private System.Windows.Forms.TabPage tabPage1;
         private System.Windows.Forms.TabPage tabPage2;
-        private System.Windows.Forms.GroupBox groupBox2;
-        private System.Windows.Forms.RadioButton radioButtonGR4;
-        private System.Windows.Forms.RadioButton radioButtonGR3;
-        private System.Windows.Forms.RadioButton radioButtonGR2;
-        private System.Windows.Forms.RadioButton radioButtonGR1;
-        private System.Windows.Forms.RadioButton radioButtonGR0;
-        private System.Windows.Forms.GroupBox groupBox1;
-        private System.Windows.Forms.RadioButton radioSolar;
-        private System.Windows.Forms.RadioButton radioLunar;
-        private System.Windows.Forms.RadioButton radioSidereal;
         private System.Windows.Forms.GroupBox groupBox3;
         private System.Windows.Forms.CheckBox checkBoxAlignonSync;
         private System.Windows.Forms.RadioButton radioButtonAlignonSync3;
@@ -779,5 +684,13 @@
         private System.Windows.Forms.RadioButton radioButtonAlignonSync1;
         private System.Windows.Forms.Button buttonFindMount;
         private System.Windows.Forms.Label labelMountDetect;
+        private System.Windows.Forms.GroupBox groupBox4;
+        private System.Windows.Forms.CheckBox checkBoxParkUpdate;
+        private System.Windows.Forms.Label label9;
+        private System.Windows.Forms.Label label8;
+        private System.Windows.Forms.TextBox textBoxParkLocAz;
+        private System.Windows.Forms.TextBox textBoxParkLocAlt;
+        private System.Windows.Forms.RadioButton radioButtonParkCustom;
+        private System.Windows.Forms.RadioButton radioButtonParkinPlace;
     }
 }
