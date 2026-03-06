@@ -4,7 +4,9 @@ using System.Threading;
 namespace ASCOM.LocalServer
 {
     /// <summary>
-    /// Summary description for GarbageCollection.
+    /// Runs periodic garbage collection on a background thread to keep the COM local server's
+    /// memory footprint low. Invoked by the server's main startup logic with a cancellation token
+    /// that signals shutdown.
     /// </summary>
     internal class GarbageCollection
     {

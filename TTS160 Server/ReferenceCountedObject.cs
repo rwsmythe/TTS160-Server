@@ -3,7 +3,9 @@ using System.Runtime.InteropServices;
 namespace ASCOM.LocalServer
 {
     /// <summary>
-    /// Class to keep track of COM object instanciations and destructions
+    /// Base class for COM reference counting. Increments the server's global object count on
+    /// construction and decrements it on finalization, triggering server shutdown when the count
+    /// reaches zero.
     /// </summary>
     [ComVisible(false)]
     public class ReferenceCountedObjectBase

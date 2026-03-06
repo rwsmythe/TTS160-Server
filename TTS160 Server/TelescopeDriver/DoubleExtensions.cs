@@ -1,5 +1,8 @@
 ﻿namespace ASCOM.TTS160
 {
+    /// <summary>
+    /// Extension methods for <see cref="double"/> providing range checking and comparison helpers.
+    /// </summary>
     public static class DoubleExtensions
     {
         public static bool InRange(this double value, double low, double high)
