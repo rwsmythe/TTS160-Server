@@ -1272,8 +1272,13 @@ namespace ASCOM.TTS160.Telescope
         #region ITelescope Implementation
 
         /// <summary>
-        /// Stops a slew in progress.
+        /// Stops a slew in progress by sending <c>:Q#</c> to the mount and resetting all motion state flags.
         /// </summary>
+        /// <remarks>
+        /// Per ASCOM standards, should only be called when <see cref="Slewing"/> is true, but the TTS-160
+        /// ignores the command if not slewing, providing a safe "universal abort" for emergency stops.
+        /// Resets all slewing, MoveAxis, and pulse guide state in <see cref="MiscResources"/>.
+        /// </remarks>
         internal static void AbortSlew()
         {
             try
@@ -2167,8 +2172,16 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Locates the telescope's "home" position (synchronous)
+        /// Locates the telescope's "home" position (azimuth 180°, lowest reachable altitude).
         /// </summary>
+        /// <remarks>
+        /// <para>Home is defined as Az=180° (south), Alt=0° (or lowest above-horizon altitude).
+        /// The method iterates altitude from 0° upward until the mount accepts the slew target
+        /// (the mount rejects targets below the horizon).</para>
+        /// <para>A background task monitors slew completion and verifies the final position is
+        /// within tolerance (altitude &lt; 2°, azimuth within 5° of 180°).
+        /// Sets <see cref="MiscResources.isAtHome"/> on success.</para>
+        /// </remarks>
         internal static void FindHome()
         {
             try
@@ -2522,10 +2535,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Convert float to two ints.  Taken from: Taken from: https://stackoverflow.com/questions/5124743/algorithm-for-simplifying-decimal-to-fractions/32903747#32903747
+        /// Converts a floating-point value to a <see cref="Fraction"/> (numerator/denominator) using
+        /// continued fraction expansion. Used by <see cref="MoveAxis"/> to convert axis rates to
+        /// hardware timer values.
         /// </summary>
-        /// <param name="Value">The double variable to be analyzed</param>
-        /// <param name="accuracy">Indicate how accurate the answer must be (between 0 and 1) </param>
+        /// <param name="value">The double value to convert to a fraction.</param>
+        /// <param name="accuracy">Maximum relative error tolerance (between 0 and 1, exclusive).</param>
+        /// <returns>A <see cref="Fraction"/> approximating <paramref name="value"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">If accuracy is not in (0, 1).</exception>
         internal static Fraction RealToFraction(double value, double accuracy)
         {
             if (accuracy <= 0.0 || accuracy >= 1.0)
@@ -2575,10 +2592,23 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope in one axis at the given rate.  
+        /// Move the telescope in one axis at the given rate.
         /// </summary>
-        /// <param name="Axis">The physical axis about which movement is desired</param>
-        /// <param name="Rate">The rate of motion (deg/sec) about the specified axis</param>
+        /// <param name="Axis">The physical axis about which movement is desired.</param>
+        /// <param name="Rate">The rate of motion (deg/sec) about the specified axis. 0 = stop.</param>
+        /// <remarks>
+        /// <para>Two firmware modes:</para>
+        /// <list type="bullet">
+        /// <item><description><b>Advanced (DEV_FIRMWARE):</b> Converts the requested rate to hardware timer
+        /// ticks using <see cref="RealToFraction"/>, then sends <c>:*MA{axis}{direction}{numerator},{denominator}#</c>.
+        /// Uses mount-specific tick constants (TPDH/TPDE) and clock frequency (57600 Hz).</description></item>
+        /// <item><description><b>Legacy:</b> Maps the rate to one of four LX200 slew speed commands
+        /// (<c>:RS#</c>, <c>:RM#</c>, <c>:RC#</c>, <c>:RG#</c>) followed by a directional move command.</description></item>
+        /// </list>
+        /// <para>Rate = 0 sends a stop command (<c>:Q{axis}#</c>) and triggers a settle timer via
+        /// <see cref="MiscResources"/>. A minimum delay of <see cref="MOVEAXIS_WAIT_TIME"/> ms is enforced
+        /// between commands to prevent mount buffer overflow.</para>
+        /// </remarks>
         internal static void MoveAxis(TelescopeAxes Axis, double Rate)
         {
 
@@ -2994,8 +3024,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to its park position, stop all motion (or restrict to a small safe range), and set <see cref="AtPark" /> to True.
+        /// Move the telescope to its park position, stop all motion, and set <see cref="AtPark" /> to True.
         /// </summary>
+        /// <remarks>
+        /// Sends the LX200 <c>:hP#</c> park command (blind). If already parked, the command is ignored.
+        /// The park position is configured in the setup dialog or via <see cref="SetPark"/>.
+        /// </remarks>
         internal static void Park()
         {
             try
@@ -3021,6 +3055,18 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Converts equatorial coordinate deltas (RA/Dec in degrees) to alt-az pulse guide durations (milliseconds).
+        /// Used by <see cref="PulseGuide"/> in equatorial frame mode to transform RA/Dec guide corrections
+        /// into altitude and azimuth motor commands.
+        /// </summary>
+        /// <param name="deltara">RA offset in degrees.</param>
+        /// <param name="deltadec">Dec offset in degrees.</param>
+        /// <returns>A tuple of (altitude duration ms, azimuth duration ms). Negative = reverse direction.</returns>
+        /// <remarks>
+        /// Uses the ASCOM Transform object to compute the alt-az delta from the RA/Dec delta,
+        /// then converts the angular offsets to pulse durations based on the current guide rate.
+        /// </remarks>
         internal static (int, int) RaDecToAltAz(double deltara, double deltadec)
         {
             int dur1;
@@ -3083,11 +3129,24 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Moves the scope in the given direction for the given interval or time at
-        /// the rate given by the corresponding guide rate property
+        /// Moves the scope in the given direction for the given interval at the guide rate.
         /// </summary>
-        /// <param name="Direction">The direction in which the guide-rate motion is to be made</param>
-        /// <param name="Duration">The duration of the guide-rate motion (milliseconds)</param>
+        /// <param name="Direction">The direction in which the guide-rate motion is to be made.</param>
+        /// <param name="Duration">The duration of the guide-rate motion (milliseconds, 0-9999).</param>
+        /// <remarks>
+        /// <para>Two modes depending on <see cref="ProfileProperties.PulseGuideEquFrame"/>:</para>
+        /// <list type="bullet">
+        /// <item><description><b>Equatorial frame (PulseGuideAwesome):</b> Converts the equatorial N/S/E/W
+        /// guide corrections to alt-az motor commands via <see cref="RaDecToAltAz"/>, compensating for
+        /// field rotation on the Alt/Az mount.</description></item>
+        /// <item><description><b>Standard:</b> Sends LX200 pulse guide commands directly
+        /// (<c>:Mg{e|w|n|s}{DDDD}#</c>). Note: N/S directions are reversed for the TTS-160.</description></item>
+        /// </list>
+        /// <para>When altitude compensation is enabled (<see cref="ProfileProperties.GuideComp"/> = 1),
+        /// E/W guide durations are divided by cos(altitude) to compensate for convergence near zenith,
+        /// clamped by <see cref="ProfileProperties.GuideCompMaxDelta"/>.</para>
+        /// <para>Can operate synchronously (blocking) or asynchronously per profile setting.</para>
+        /// </remarks>
         internal static void PulseGuide(GuideDirections Direction, int Duration)
         {
 
@@ -3290,11 +3349,19 @@ namespace ASCOM.TTS160.Telescope
             }
         }
 
+        /// <summary>
+        /// Sends a single-axis pulse guide command in body-frame coordinates. Called by
+        /// <see cref="PulseGuide"/> when equatorial frame mode is active, after the RA/Dec
+        /// correction has been decomposed into alt-az components.
+        /// </summary>
+        /// <param name="Direction">The guide direction (mapped to body frame: N/S reversed, E/W reversed).</param>
+        /// <param name="Duration">The duration in milliseconds (0-9999).</param>
+        /// <remarks>
+        /// The TTS-160 responds in a reversed body frame: GuideNorth = motion in -elevation direction.
+        /// E/W directions are also 180° out in azimuth, so the command mappings are inverted.
+        /// </remarks>
         internal static void PulseGuideAwesome(GuideDirections Direction, int Duration)
         {
-
-            //Note that it is not clear if TTS-160 responds in body frame or LH frame
-            //Further experiments show that TTS-160 responds in the (reverse?) body frame: GuideNorth = motion in -el direction.  Unsure GuideE/W
 
             LogMessage("PulseGuideAwesome", $"pulse guide direction {Direction} duration {Duration}");
             try
@@ -3485,8 +3552,12 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Sets the telescope's park position to be its current position.
+        /// Sets the telescope's park position to its current Alt/Az position.
         /// </summary>
+        /// <remarks>
+        /// Reads current <see cref="Altitude"/> and <see cref="Azimuth"/>, rounds to integers,
+        /// and sends <c>:*PS1{az}{alt}#</c> to the mount to store the custom park location.
+        /// </remarks>
         internal static void SetPark()
         {
             
@@ -3873,10 +3944,17 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given local horizontal coordinates
-        /// This method must be implemented if <see cref="CanSlewAltAz" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the given local horizontal coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
+        /// <param name="Azimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="Altitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Converts Alt/Az to equatorial coordinates using the ASCOM Transform, temporarily enables
+        /// tracking for the slew, then delegates to <see cref="SlewToCoordinates"/>. Tracking is
+        /// restored to its prior state after the slew via <see cref="MiscResources.TrackSetFollower"/>.
+        /// The previous target coordinates are preserved and restored after the slew.
+        /// </remarks>
         internal static void SlewToAltAz(double Azimuth, double Altitude)
         {
             //LogMessage("SlewToAltAz", "Not implemented");
@@ -3946,12 +4024,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given local horizontal coordinates.
-        /// This method must be implemented if <see cref="CanSlewAltAzAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the given local horizontal coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
-        /// <param name="Azimuth">Azimuth to which to move</param>
-        /// <param name="Altitude">Altitude to which to move to</param>
+        /// <param name="Azimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="Altitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Same as <see cref="SlewToAltAz"/> but delegates to <see cref="SlewToCoordinatesAsync"/>
+        /// for non-blocking operation. Handles J2000 ↔ topocentric conversion based on <see cref="MountEpoch"/>.
+        /// </remarks>
         internal static void SlewToAltAzAsync(double Azimuth, double Altitude)
         {
             LogMessage("SlewToAltAzAsync", "Not implemented");
@@ -4035,10 +4116,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given equatorial coordinates.  
-        /// This method must be implemented if <see cref="CanSlew" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the given equatorial coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
+        /// <param name="RightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="Declination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// Sets <see cref="TargetRightAscension"/> and <see cref="TargetDeclination"/>,
+        /// then delegates to <see cref="SlewToTarget"/>. Requires tracking to be enabled.
+        /// </remarks>
         internal static void SlewToCoordinates(double RightAscension, double Declination)
         {
             LogMessage("SlewToCoordinates", "Setting Coordinates as Target and Slewing");
@@ -4077,10 +4163,14 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the given equatorial coordinates.
-        /// This method must be implemented if <see cref="CanSlewAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the given equatorial coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
+        /// <param name="RightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="Declination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// Sets target coordinates, then delegates to <see cref="SlewToTargetAsync"/>.
+        /// </remarks>
         internal static void SlewToCoordinatesAsync(double RightAscension, double Declination)
         {
             LogMessage("SlewToCoordinatesAsync", "Setting Coordinates as Target and Slewing");
@@ -4120,11 +4210,17 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
-        /// This method must be implemented if <see cref="CanSlew" /> returns True.
-        /// It does not return until the slew is complete.
+        /// Synchronously slew the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
+        /// Does not return until the slew is complete.
         /// </summary>
-
+        /// <remarks>
+        /// <para>Sends LX200 <c>:MS#</c> (Move/Slew) command. A boolean response of '1' = object below horizon.</para>
+        /// <para>If the mount is in J2000 mode, converts topocentric targets to J2000 before sending.</para>
+        /// <para>Polls <see cref="Slewing"/> in a loop (200ms interval, 180s timeout) until the mount
+        /// reports slewing complete. Verifies final position is within 1 arcminute of target; if not,
+        /// after 300 consecutive out-of-tolerance readings, logs a fault warning.</para>
+        /// <para>Settle time from <see cref="SlewSettleTime"/> is applied after the mount stops.</para>
+        /// </remarks>
         internal static void SlewToTarget()
         {
             LogMessage("SlewToTarget", "Slewing To Target");
@@ -4324,10 +4420,15 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Move the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" />  coordinates.
-        /// This method must be implemented if <see cref="CanSlewAsync" /> returns True.
-        /// It returns immediately, with <see cref="Slewing" /> set to True
+        /// Asynchronously slew the telescope to the <see cref="TargetRightAscension" /> and <see cref="TargetDeclination" /> coordinates.
+        /// Returns immediately with <see cref="Slewing" /> set to True.
         /// </summary>
+        /// <remarks>
+        /// <para>Sends LX200 <c>:MS#</c> command and returns immediately. The <see cref="Slewing"/>
+        /// property getter acts as the state machine that detects slew completion, settle time,
+        /// and error checking.</para>
+        /// <para>If the mount is in J2000 mode, converts topocentric targets to J2000 before sending.</para>
+        /// </remarks>
         internal static void SlewToTargetAsync()
         {
 
@@ -4401,6 +4502,20 @@ namespace ASCOM.TTS160.Telescope
         /// True if telescope is in the process of moving in response to one of the
         /// Slew methods or the <see cref="MoveAxis" /> method, False at all other times.
         /// </summary>
+        /// <remarks>
+        /// <para>The getter acts as a state machine managing slew completion. It handles:</para>
+        /// <list type="bullet">
+        /// <item><description>Slew-to-target completion: queries <c>:D#</c> for mount slewing status,
+        /// checks position convergence (3 consecutive readings within 0.5 arcsec), and verifies
+        /// final position is within 1 arcminute of target.</description></item>
+        /// <item><description>Settle time: after motion stops, waits for <see cref="SlewSettleTime"/>
+        /// seconds before reporting slew complete.</description></item>
+        /// <item><description>MoveAxis settle: detects when axis motion has stopped and clears
+        /// movement flags, restoring tracking state via <see cref="TrackSetFollower"/>.</description></item>
+        /// <item><description>PulseGuide completion: checks elapsed time against guide duration.</description></item>
+        /// </list>
+        /// <para>The setter directly updates <see cref="MiscResources.IsSlewing"/>.</para>
+        /// </remarks>
         internal static bool Slewing
         {
             //'Slewing' query (:D#) _is_ implemented in TTS-160, keep track in driver.
@@ -4742,6 +4857,12 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Matches the scope's local horizontal coordinates to the given local horizontal coordinates.
         /// </summary>
+        /// <param name="TAzimuth">Target azimuth in degrees (0-360).</param>
+        /// <param name="TAltitude">Target altitude in degrees (0-90).</param>
+        /// <remarks>
+        /// Converts Alt/Az to equatorial via the Transform, then delegates to <see cref="SyncToCoordinates"/>.
+        /// Waits <see cref="SYNC_WAIT_TIME"/> ms for the sync to take effect on the mount.
+        /// </remarks>
         internal static void SyncToAltAz(double TAzimuth, double TAltitude)
         {
             try
@@ -4789,6 +4910,16 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Matches the scope's equatorial coordinates to the given equatorial coordinates.
         /// </summary>
+        /// <param name="TRightAscension">Target right ascension in hours (0-24).</param>
+        /// <param name="TDeclination">Target declination in degrees (-90 to +90).</param>
+        /// <remarks>
+        /// <para>Sets the target coordinates on the mount, then sends the sync command.</para>
+        /// <para>On advanced firmware with Align-on-Sync enabled, uses <c>:*CM#</c> which returns
+        /// the remaining alignment points. When all points are consumed, Align-on-Sync is disabled.</para>
+        /// <para>On standard mode, uses <c>:CM#</c>. Handles J2000 ↔ topocentric conversion
+        /// based on <see cref="MountEpoch"/>.</para>
+        /// <para>Waits <see cref="SYNC_WAIT_TIME"/> ms after sync for mount registers to update.</para>
+        /// </remarks>
         internal static void SyncToCoordinates(double TRightAscension, double TDeclination)
         {
             tl.LogMessage("SyncToCoordinates", "Setting Coordinates as Target and Syncing");
@@ -4942,7 +5073,8 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Matches the scope's equatorial coordinates to the target equatorial coordinates.
+        /// Matches the scope's equatorial coordinates to the current <see cref="TargetRightAscension"/>
+        /// and <see cref="TargetDeclination"/>. Delegates to <see cref="SyncToCoordinates"/>.
         /// </summary>
         internal static void SyncToTarget()
         {
@@ -5547,6 +5679,10 @@ namespace ASCOM.TTS160.Telescope
         /// <summary>
         /// Takes telescope out of the Parked state.
         /// </summary>
+        /// <exception cref="MethodNotImplementedException">
+        /// Always thrown; the TTS-160 does not support a dedicated unpark command.
+        /// See <see cref="CanUnpark"/>.
+        /// </exception>
         internal static void Unpark()
         {
             LogMessage("Unpark", "Not implemented");
@@ -5573,9 +5709,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we aren't connected to the hardware
+        /// Throws <see cref="NotConnectedException"/> if the driver is not connected to the hardware.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckConnected(string message)
         {
             if (!IsConnected)
@@ -5585,9 +5721,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we are slewing
+        /// Throws <see cref="InvalidOperationException"/> if the telescope is currently slewing.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckSlewing(string message)
         {
             if (Slewing)
@@ -5597,9 +5733,9 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we are in a goto
+        /// Throws <see cref="InvalidOperationException"/> if the telescope is performing a goto slew.
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckGoto(string message)
         {
             
@@ -5610,16 +5746,23 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Use this function to throw an exception if we are parked
+        /// Throws <see cref="ParkedException"/> if the telescope is parked.
+        /// Queries the mount via <see cref="AtPark"/> on each call.
         /// </summary>
+        /// <param name="message">Caller name included in the exception message.</param>
         private static void CheckParked(string message)
         {
             if (AtPark) { throw new ASCOM.ParkedException("Unable to use " + message + " while parked"); }
         }
 
         /// <summary>
-        /// Read the device configuration from the ASCOM Profile store
+        /// Read the device configuration from the ASCOM Profile store (Windows Registry).
         /// </summary>
+        /// <returns>A <see cref="ProfileProperties"/> instance populated with all persisted settings.</returns>
+        /// <remarks>
+        /// Serialized via <see cref="LockObject"/> to prevent concurrent registry access.
+        /// Each setting has a default value used if the registry key does not exist.
+        /// </remarks>
         internal static ProfileProperties ReadProfile()
         {
             lock(LockObject)
@@ -5659,8 +5802,13 @@ namespace ASCOM.TTS160.Telescope
         }
 
         /// <summary>
-        /// Write the device configuration to the  ASCOM  Profile store
+        /// Write the device configuration to the ASCOM Profile store (Windows Registry).
         /// </summary>
+        /// <param name="profileProperties">The settings to persist.</param>
+        /// <remarks>
+        /// Serialized via <see cref="LockObject"/>. Called on connect, disconnect,
+        /// and when settings are changed via the setup dialog.
+        /// </remarks>
         internal static void WriteProfile(ProfileProperties profileProperties)
         {
             lock(LockObject)
