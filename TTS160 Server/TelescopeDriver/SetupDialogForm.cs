@@ -12,6 +12,16 @@ using System.Management;
 
 namespace ASCOM.TTS160
 {
+    /// <summary>
+    /// ASCOM setup dialog for the TTS-160 driver configuration.
+    /// Shown when the user selects "Properties" in the ASCOM Chooser or clicks Setup in a client application.
+    /// </summary>
+    /// <remarks>
+    /// <para>Reads/writes driver settings via <see cref="ProfileProperties"/>. Settings include COM port,
+    /// site coordinates, slew settle time, guide compensation parameters, Align-on-Sync, park location,
+    /// and developer/troubleshooting options.</para>
+    /// <para>Not registered for COM — only used internally by the driver.</para>
+    /// </remarks>
     [ComVisible(false)]					// Form not registered for COM!
     public partial class SetupDialogForm : Form
     {
@@ -19,6 +29,11 @@ namespace ASCOM.TTS160
 
         private Util utilities;
 
+        /// <summary>
+        /// Initializes the setup dialog with the driver's trace logger and populates the UI
+        /// with current settings from the ASCOM Profile.
+        /// </summary>
+        /// <param name="tlDriver">The driver's trace logger instance for diagnostic output.</param>
         public SetupDialogForm(TraceLogger tlDriver)
         {
             InitializeComponent();
@@ -32,10 +47,11 @@ namespace ASCOM.TTS160
             InitUI();
         }
 
-        private void cmdOK_Click(object sender, EventArgs e) // OK button event handler
+        /// <summary>
+        /// OK button handler. Validates driver site coordinate format (DMS) and saves the selected COM port.
+        /// </summary>
+        private void cmdOK_Click(object sender, EventArgs e)
         {
-            // Place any validation constraint checks here
-            // Update the state variables with results from the dialogue
             try
             {
                 TelescopeHardware.profileProperties.ComPort = (string)comboBoxComPort.SelectedItem;
@@ -57,12 +73,14 @@ namespace ASCOM.TTS160
             tl.Enabled = chkTrace.Checked;
         }
 
-        private void cmdCancel_Click(object sender, EventArgs e) // Cancel button event handler
+        /// <summary>Cancel button handler. Closes the dialog without saving changes.</summary>
+        private void cmdCancel_Click(object sender, EventArgs e)
         {
             Close();
         }
 
-        private void BrowseToAscom(object sender, EventArgs e) // Click on ASCOM logo event handler
+        /// <summary>Opens the ASCOM Standards website when the ASCOM logo is clicked.</summary>
+        private void BrowseToAscom(object sender, EventArgs e)
         {
             try
             {
@@ -79,6 +97,9 @@ namespace ASCOM.TTS160
             }
         }
 
+        /// <summary>
+        /// Populates the COM port combo box with available ports and selects the currently configured one.
+        /// </summary>
         private void InitUI()
         {
             chkTrace.Checked = tl.Enabled;
@@ -119,6 +140,12 @@ namespace ASCOM.TTS160
                 SlewSetTimeTxt.Text = SlewSetTimeTxt.Text.Remove(SlewSetTimeTxt.Text.Length - 1);
             }
         }
+        /// <summary>
+        /// Reads all UI control values and builds a new <see cref="ProfileProperties"/> instance.
+        /// </summary>
+        /// <param name="CurProfile">The current profile, used to preserve site lat/long values
+        /// (which are read from the mount, not from UI controls).</param>
+        /// <returns>A new <see cref="ProfileProperties"/> populated from the dialog's UI state.</returns>
         public ProfileProperties GetProfile(ProfileProperties CurProfile)
         {
 
@@ -196,6 +223,14 @@ namespace ASCOM.TTS160
 
         }
 
+        /// <summary>
+        /// Populates all UI controls from the given <see cref="ProfileProperties"/> settings.
+        /// </summary>
+        /// <param name="profileProperties">The settings to display in the dialog.</param>
+        /// <remarks>
+        /// Site latitude/longitude display "Not Yet Read" when they hold sentinel values
+        /// (100 for latitude, 200 for longitude), indicating the mount hasn't been queried yet.
+        /// </remarks>
         public void SetProfile(ProfileProperties profileProperties)
         {
 
@@ -304,6 +339,10 @@ namespace ASCOM.TTS160
             }
         }
 
+        /// <summary>
+        /// When equatorial frame pulse guiding is enabled, disables the altitude compensation
+        /// controls (they are mutually exclusive — equatorial frame handles compensation internally).
+        /// </summary>
         private void checkBoxPulseGuideTopoEqu_CheckedChanged(object sender, EventArgs e)
         {
             if (checkBoxPulseGuideTopoEqu.Checked)
@@ -318,6 +357,10 @@ namespace ASCOM.TTS160
             textBuffer.Enabled = !checkBoxPulseGuideTopoEqu.Checked;
         }
 
+        /// <summary>
+        /// Guards access to the developer/troubleshooting tab with a password prompt.
+        /// These options can cause erratic behavior and are intended for debugging only.
+        /// </summary>
         private void tabControl1_Selecting(object sender, TabControlCancelEventArgs e)
         {
             if (e.TabPage == tabPage2)
@@ -344,6 +387,10 @@ namespace ASCOM.TTS160
 
         }
 
+        /// <summary>
+        /// Queries WMI for COM port device information and displays it to help the user identify
+        /// which COM port corresponds to the TTS-160 mount.
+        /// </summary>
         private void buttonFindMount_Click(object sender, EventArgs e)
         {
 
